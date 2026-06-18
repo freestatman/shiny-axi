@@ -35,9 +35,11 @@ import {
   stopCommand,
   telemetryCommandName,
   shinyCommand,
+  quartoCommand,
   VERSION,
 } from "../src/cli.js";
 import { serve } from "../src/server.js";
+import { detectQuarto } from "../src/quarto-process.js";
 
 test("CLI version tracks package.json so release-please bumps reach the published binary", async () => {
   const packageJson = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
@@ -61,6 +63,8 @@ test("home output teaches agents when and how to use Lavish Editor", () => {
   assert.ok(output.visual_guidance.some((item) => item.includes("sections, cards, tables")));
   assert.ok(output.visual_guidance.some((item) => item.includes("horizontal overflow")));
   assert.ok(output.visual_guidance.some((item) => item.includes("minmax(0, 1fr)")));
+  assert.ok(output.visual_guidance.some((item) => /nested grid\/flex/i.test(item)));
+  assert.ok(output.visual_guidance.some((item) => /pixel or monospace fonts/i.test(item)));
   assert.ok(!output.visual_guidance.some((item) => item.includes("test narrow viewports")));
   assert.ok(output.playbooks.some((item) => item.id === "diagram"));
   assert.equal(
@@ -173,6 +177,11 @@ test("design output prints copy-pasteable CDN URLs so agents can opt in to Daisy
   assert.match(output.design.cdn_snippet, /cdn\.jsdelivr\.net\/npm\/daisyui@/);
   assert.match(output.design.cdn_snippet, /cdn\.jsdelivr\.net\/npm\/daisyui@.*\/themes\.css/);
   assert.match(output.design.cdn_snippet, /cdn\.jsdelivr\.net\/npm\/@tailwindcss\/browser@/);
+  assert.match(output.design.layout_safety_snippet, /min-width: 0/);
+  assert.match(output.design.layout_safety_snippet, /overflow-wrap: anywhere/);
+  assert.match(output.design.layout_safety_snippet, /max-width: 100%/);
+  assert.match(output.design.layout_safety_note, /Optional copy-paste CSS/);
+  assert.match(output.design.layout_safety_note, /never auto-injects/);
   assert.match(
     output.design.cdn_urls.daisyui,
     /^https:\/\/cdn\.jsdelivr\.net\/npm\/daisyui@\d+\.\d+\.\d+\/daisyui\.css$/,
@@ -242,9 +251,15 @@ test("playbook detail output returns focused Lavish-native guidance", () => {
   assert.ok(output.playbook.choose.some((item) => item.includes("control")));
   assert.ok(output.playbook.structure.some((item) => item.includes("decision")));
   assert.ok(output.playbook.design_rules.some((item) => item.includes("queuePrompt")));
+  assert.ok(output.playbook.design_rules.some((item) => item.includes("per-question form submit")));
+  assert.ok(output.playbook.design_rules.some((item) => item.includes("radio change handlers")));
   assert.ok(output.playbook.design_rules.some((item) => item.includes("data-lavish-action")));
+  assert.ok(output.playbook.design_rules.some((item) => item.includes("data-lavish-question")));
+  assert.ok(output.playbook.design_rules.some((item) => item.includes("queueKey")));
   assert.ok(output.playbook.lavish_notes.some((item) => item.includes("window.lavish.queuePrompt")));
+  assert.ok(output.playbook.lavish_notes.some((item) => item.includes("onsubmit")));
   assert.ok(output.playbook.pitfalls.some((item) => item.includes("unclear")));
+  assert.ok(output.playbook.pitfalls.some((item) => item.includes("radio change")));
   assert.ok(output.playbook.lavish_notes.some((item) => item.includes("Lavish")));
 });
 
@@ -309,6 +324,8 @@ test("open output keeps the user URL in session data and next_step focused on po
   assert.match(output.next_step, /Do not respond to the user just yet\. Now you must run/);
   assert.match(output.next_step, /lavish-axi poll \/tmp\/artifact\.html/);
   assert.match(output.next_step, /long-polls until/);
+  assert.match(output.next_step, /layout_warnings/);
+  assert.match(output.next_step, /in-iframe layout audit/);
   assert.match(output.next_step, /stays silent/);
   assert.match(output.next_step, /never kill it/);
   assert.match(output.next_step, /background task/);
@@ -336,12 +353,40 @@ test("feedback next step tells agents to keep polling without timeout flag", () 
     response: { status: "feedback", dom_snapshot: "", prompts: [] },
   });
 
+  assert.equal("layout_warnings" in output, false);
   assert.match(output.next_step, /never kill it/);
   assert.match(output.next_step, /without --timeout-ms/);
   assert.match(output.next_step, /background task/);
   assert.match(output.next_step, /queued feedback is never lost/);
   assert.match(output.next_step, /Do not respond to the user just yet\. Now you must run/);
+  assert.match(output.next_step, /fresh layout_warnings/);
   assert.doesNotMatch(output.next_step, /above 10 minutes/);
+});
+
+test("layout warning feedback tells agents to fix layout before involving the human", () => {
+  const output = createPollOutput({
+    file: "/tmp/report.html",
+    response: {
+      status: "feedback",
+      dom_snapshot: "",
+      prompts: [],
+      layout_warnings: [
+        {
+          selector: "html",
+          kind: "page-horizontal-overflow",
+          overflowPx: 16,
+          viewportWidth: 720,
+          severity: "error",
+        },
+      ],
+    },
+  });
+
+  assert.ok("layout_warnings" in output);
+  assert.equal(output.layout_warnings.length, 1);
+  assert.match(output.next_step, /1 layout warning detected/);
+  assert.match(output.next_step, /fix horizontal overflow/);
+  assert.match(output.next_step, /before involving the human/);
 });
 
 test("poll wait messages tell watching agents the silence is normal", () => {
@@ -456,6 +501,7 @@ test("waiting next step reassures agents that re-running poll loses nothing", ()
 test("html file arguments normalize to the hidden open command", () => {
   assert.deepEqual(normalizeArgv(["report.html"]), ["open", "report.html"]);
   assert.deepEqual(normalizeArgv(["--no-open", "report.html"]), ["open", "--no-open", "report.html"]);
+  assert.deepEqual(normalizeArgv(["--no-gate", "report.html"]), ["open", "--no-gate", "report.html"]);
   assert.deepEqual(normalizeArgv(["poll", "report.html"]), ["poll", "report.html"]);
   assert.deepEqual(normalizeArgv(["setup", "hooks"]), ["setup", "hooks"]);
   assert.deepEqual(normalizeArgv(["playbook", "diagram"]), ["playbook", "diagram"]);
@@ -655,9 +701,11 @@ test("shutdownServerOnPort ignores unidentified health responders", async () => 
 test("open can resume a session without opening another browser window", () => {
   assert.equal(shouldOpenBrowser(["--no-open", "artifact.html"], {}), false);
   assert.equal(shouldOpenBrowser(["artifact.html", "--no-open"], {}), false);
+  assert.equal(shouldOpenBrowser(["--no-gate", "artifact.html"], {}), true);
   assert.equal(shouldOpenBrowser(["artifact.html"], { LAVISH_AXI_NO_OPEN: "1" }), false);
   assert.equal(shouldOpenBrowser(["artifact.html"], {}), true);
   assert.match(getCommandHelp("open"), /--no-open/);
+  assert.match(getCommandHelp("open"), /--no-gate/);
   assert.match(getCommandHelp("playbook"), /diagram/);
   assert.match(getCommandHelp("playbook"), /code/);
   assert.match(getCommandHelp("playbook"), /input/);
@@ -840,6 +888,59 @@ test("shiny command with --url skips R environment check and registers session",
     // 2. With --url: should bypass R check, hit the test server, and succeed
     const output = await shinyCommand(["--no-open", "--url", "http://127.0.0.1:8080", dir]);
     assert.equal(output.session.type, "shiny");
+    assert.equal(output.session.status, "opened");
+    assert.match(output.session.url, new RegExp(`session/[a-f0-9]{16}`));
+  } finally {
+    process.env = originalEnv;
+    await server.close();
+    await rm(dir, { force: true, recursive: true });
+  }
+});
+
+test("normalizeArgv preserves quarto command and flags", () => {
+  assert.deepEqual(normalizeArgv(["quarto", "./doc.qmd"]), ["quarto", "./doc.qmd"]);
+  assert.deepEqual(normalizeArgv(["quarto", "--no-open", "./doc.qmd"]), ["quarto", "--no-open", "./doc.qmd"]);
+});
+
+test("quarto command help contains Quarto reference", () => {
+  const help = getCommandHelp("quarto");
+  assert.match(help, /Quarto document/i);
+  assert.match(help, /quarto render/i);
+});
+
+test("telemetryCommandName identifies quarto command correctly", () => {
+  assert.equal(telemetryCommandName(["quarto", "./doc.qmd"]), "quarto");
+});
+
+test("quarto command successfully renders and registers session", async () => {
+  const detect = await detectQuarto();
+  if (!detect.ok) {
+    return;
+  }
+
+  const dir = await mkdtemp(`${os.tmpdir()}/lavish-axi-quarto-cli-test-`);
+  const state = path.join(dir, "state.json");
+  const server = await serve({ port: 0, stateFile: state });
+  const port = server.port;
+
+  const originalEnv = { ...process.env };
+
+  const qmdFile = path.join(dir, "document.qmd");
+  const qmdContent = `---
+title: "Test Document"
+format: html
+---
+
+# Hello Quarto
+`;
+
+  try {
+    await writeFile(qmdFile, qmdContent, "utf8");
+    process.env.LAVISH_AXI_PORT = String(port);
+    process.env.LAVISH_AXI_STATE_DIR = dir;
+
+    const output = await quartoCommand(["--no-open", qmdFile]);
+    assert.equal(output.session.type, "quarto");
     assert.equal(output.session.status, "opened");
     assert.match(output.session.url, new RegExp(`session/[a-f0-9]{16}`));
   } finally {

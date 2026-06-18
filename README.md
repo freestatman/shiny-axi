@@ -57,6 +57,12 @@ To review and annotate R Shiny apps, install the `lavish-shiny` skill:
 npx skills add freestatman/lavish-axi --skill lavish-shiny
 ```
 
+To review and annotate Quarto documents and Quarto Shiny apps, install the `lavish-quarto` skill:
+
+```sh
+npx skills add kunchenguid/lavish-axi --skill lavish-quarto
+```
+
 That is the entire setup - no npm install needed.
 The skill teaches your agent to run Lavish through `npx -y lavish-axi`, so the CLI comes along on demand.
 Its frontmatter also includes Hermes Agent metadata, so Hermes-compatible harnesses can categorize and surface it as a first-class productivity skill.
@@ -123,8 +129,9 @@ pnpm link
         ▼
 ┌────────────────────────┐
 │ Human annotates text   │
-│ or elements, or        │
-│ sends chat feedback    │
+│ or elements, sends     │
+│ chat, or browser audit │
+│ reports layout issues  │
 └───────┬────────────────┘
         ▼
 ┌────────────────────────┐
@@ -133,21 +140,28 @@ pnpm link
 └────────────────────────┘
 ```
 
-- **File-path identity** - Sessions are keyed by the canonical HTML file path, so agents do not need opaque IDs.
-- **Portable artifacts** - The artifact runs in an iframe while Lavish injects a small SDK for annotations, snapshots, and feedback controls.
+- **File-path identity** - Sessions are keyed by the canonical file path (HTML file, app directory, or `.qmd` source file), so agents do not need opaque IDs.
+- **Portable artifacts** - The artifact runs in an iframe while Lavish injects a small SDK for annotations, snapshots, feedback controls, and render-time layout checks.
   Lavish does not inject any design system, so the saved HTML file renders identically whether you open it through `lavish-axi` or directly in a browser.
   Before writing HTML, choose a design system in strict priority order: follow a user-requested look first; otherwise inspect the project the artifact is about - the subject or product whose content or UI it represents, which may differ from your current working directory - and match that project's Tailwind or theme config, CSS variables or design tokens, component library, brand assets, or existing styled pages.
   If the artifact previews, proposes, or mocks a specific app's UI, render it in that app's own design system so it faithfully shows the product, even when you are running in a different repo.
   Only when both come up empty, run `lavish-axi design` for a copy-pasteable Tailwind CSS v4 + DaisyUI v5 CDN fallback.
-  That fallback guidance recommends DaisyUI's `luxury` theme by default and warns not to `@apply` DaisyUI classes inside Tailwind browser-runtime style blocks.
+  That fallback guidance recommends DaisyUI's `luxury` theme by default, warns not to `@apply` DaisyUI classes inside Tailwind browser-runtime style blocks, and includes an optional layout safety CSS snippet for dense nested grid/flex layouts.
+- **Open-time layout gate** - The browser chrome masks each artifact until the real in-iframe layout audit reports no error-severity findings.
+  Warning-only artifacts reveal normally; error findings notify the agent through the same `layout_warnings` poll path and keep the curtain up until a clean reload.
+  The user can click **Show anyway**, and a bounded safety timeout reveals with a persistent layout-issues banner so review is never blocked indefinitely.
+- **Layout warnings** - After fonts load and layout settles, the injected SDK audits the real browser render for page horizontal overflow, element overflow, clipped text, and overlapping text.
+  Intentional horizontal scrollers using `overflow-x: auto` or `scroll` are excluded.
+  Fresh warnings are returned from `lavish-axi poll` as `layout_warnings` with `selector`, `kind`, `overflowPx`, `viewportWidth`, and `severity`, so agents can fix unreadable layouts before asking the human to review.
 - **Local assets** - Copy local images, CSS, fonts, and scripts next to the HTML artifact and reference them with relative paths from that directory; root-prefixed paths such as `/assets/logo.png` will not resolve through Lavish's artifact route.
 - **Live reload** - Lavish watches the HTML artifact file by default and preserves the artifact iframe scroll position across reloads. To also reload on sibling asset changes, add `data-lavish-live-reload-root` to the root element or `<meta name="lavish-live-reload" content="root">`.
-- **Feedback controls** - Native form controls (radios, checkboxes, inputs, selects, buttons, labels, contenteditable) are interactive automatically, so they do not need `data-lavish-action`; wire their handlers to `window.lavish.queuePrompt()` or `window.lavish.sendQueuedPrompts()` to send feedback.
-  Mark only custom (non-native) clickable elements with `data-lavish-action` so Lavish does not annotate them.
+- **Feedback controls** - Native form controls (radios, checkboxes, inputs, selects, buttons, labels, contenteditable) are interactive automatically, so they do not need `data-lavish-action`.
+  For reversible choices, let option clicks update local state, then queue exactly one final answer from a per-question submit or Queue answer button with `window.lavish.queuePrompt()`.
+  Mark only custom (non-native) clickable elements with `data-lavish-action` so Lavish does not annotate them, and use `data-lavish-question` or `queueKey` when pre-send updates for the same question should replace each other.
   The browser chrome keeps editing actions in the overflow menu (copy path, reload artifact, copy DOM snapshot, end session) and can submit queued prompts with **Send & end session**, which delivers the prompts before ending the session.
 - **Keyboard shortcuts** - In the chrome composer, Enter sends queued prompts and Shift+Enter inserts a newline.
   In the annotation card, Enter queues the annotation, Shift+Enter inserts a newline, and Ctrl+Enter (Cmd+Enter on macOS) queues it and sends all queued prompts immediately.
-- **Agent presence** - The browser shows when no agent is listening, keeps queued feedback for the next successful `lavish-axi poll` send even across reloads, and only blocks sending while the agent is working on delivered feedback. The no-timeout poll writes an immediate stderr banner and periodic stderr heartbeats while stdout stays reserved for the final response; if the poll is interrupted or times out, re-run it because queued feedback is never lost.
+- **Agent presence** - The browser shows when no agent is listening, keeps queued feedback and fresh layout warnings for the next successful `lavish-axi poll` send even across reloads, and only blocks human sends while the agent is working on delivered feedback. The no-timeout poll writes an immediate stderr banner and periodic stderr heartbeats while stdout stays reserved for the final response; if the poll is interrupted or times out, re-run it because queued feedback is never lost.
 - **Precise targets** - Text annotations include selected text plus range anchors, so agents are not limited to whole-element selectors.
 - **Server cleanup** - The detached server stops after the last session ends when nothing is connected, or after `LAVISH_AXI_IDLE_TIMEOUT_MS` (default 30 minutes) with no browser or poll connections.
   Set `LAVISH_AXI_IDLE_TIMEOUT_MS=0` or `off` to disable idle self-shutdown.
@@ -163,20 +177,30 @@ Lavish Editor extends its interactive annotation workflow to **R Shiny Applicati
 - **Interactive UI & Plots**: The proxy server intercepts HTML responses, injects the Lavish annotation SDK, and strips blocking iframe headers (`X-Frame-Options` and `CSP`). It also routes real-time bidirectional WebSockets to allow native Shiny updates and reactive plots to function seamlessly inside the sandbox.
 - **Agent Reactivity**: User feedback and element-pinpointing annotations are delivered to the agent using the standard poll mechanism (`lavish-axi poll [app-dir]`). The agent can then read the feedback and dynamically update the R source code (`app.R`) or UI styling in real time.
 
+## Quarto Support
+
+Lavish Editor extends its annotation workflow to **Quarto documents** (`.qmd`, `.rmd`, `.md`) and **Quarto Shiny apps**.
+
+- **Static documents**: Run `lavish-axi quarto <file.qmd>`. Lavish renders the document to HTML with `quarto render`, serves the output in the chrome, and automatically re-renders on every file change in the document's directory (excluding generated output directories such as `_freeze` and `_site`).
+- **Interactive Quarto Shiny apps**: When the document's YAML frontmatter contains `server: shiny`, Lavish automatically detects this and runs `quarto serve` instead, proxying the live Shiny session. The process restarts on file changes just like the R Shiny managed mode.
+- **Browser badge**: Static documents show a **Quarto Doc** badge; Quarto Shiny apps show a **Quarto Shiny** badge. The reload button for static documents is labeled "Re-render & reload".
+- **Agent workflow**: After launching, use `lavish-axi poll <file.qmd>` to wait for annotations. Apply edits to the `.qmd` source; the browser reloads automatically.
+
 ## CLI Reference
 
-| Command                      | Description                                                                                                                 |
-| ---------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| `lavish-axi`                 | Show current sessions and usage guidance.                                                                                   |
-| `lavish-axi <html-file>`     | Open or resume a Lavish Editor session.                                                                                     |
-| `lavish-axi shiny [app-dir]` | Open or resume an interactive R Shiny application annotation session.                                                       |
-| `lavish-axi poll <path>`     | Long-poll until the user sends feedback or ends the session; leave no-timeout polls running, or re-run them if interrupted. |
-| `lavish-axi end <path>`      | End a session.                                                                                                              |
-| `lavish-axi stop`            | Shut down the background server.                                                                                            |
-| `lavish-axi playbook [id]`   | List focused artifact guidance or show one playbook.                                                                        |
-| `lavish-axi design`          | Show the Tailwind + DaisyUI CDN fallback, including the `luxury` default theme and DaisyUI `@apply` warning.                |
-| `lavish-axi setup hooks`     | Install or repair optional SessionStart hooks for Claude Code, Codex, and OpenCode; restart the agent session afterward.    |
-| `lavish-axi server`          | Run the local Lavish Editor server.                                                                                         |
+| Command                        | Description                                                                                                                                                               |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `lavish-axi`                   | Show current sessions and usage guidance.                                                                                                                                 |
+| `lavish-axi <html-file>`       | Open or resume a Lavish Editor session, with the open-time layout gate enabled by default.                                                                                |
+| `lavish-axi shiny [app-dir]`   | Open or resume an interactive R Shiny application annotation session.                                                                                                     |
+| `lavish-axi quarto <file.qmd>` | Open or resume an interactive Quarto document or Quarto Shiny annotation session.                                                                                         |
+| `lavish-axi poll <path>`       | Long-poll until the user sends feedback, ends the session, or the browser reports fresh `layout_warnings`; leave no-timeout polls running, or re-run them if interrupted. |
+| `lavish-axi end <path>`        | End a session.                                                                                                                                                            |
+| `lavish-axi stop`              | Shut down the background server.                                                                                                                                          |
+| `lavish-axi playbook [id]`     | List focused artifact guidance or show one playbook.                                                                                                                      |
+| `lavish-axi design`            | Show the Tailwind + DaisyUI CDN fallback, including the `luxury` default theme, DaisyUI `@apply` warning, and optional layout safety snippet.                             |
+| `lavish-axi setup hooks`       | Install or repair optional SessionStart hooks for Claude Code, Codex, and OpenCode; restart the agent session afterward.                                                  |
+| `lavish-axi server`            | Run the local Lavish Editor server.                                                                                                                                       |
 
 Known playbook IDs: `diagram`, `table`, `comparison`, `plan`, `code`, `input`, `slides`.
 One artifact often combines several playbooks, such as a plan that includes a comparison and a diagram, so read every playbook relevant to the artifact for the best quality.
@@ -186,8 +210,10 @@ One artifact often combines several playbooks, such as a plan that includes a co
 | Command                  | Flag                  | Description                                                                                                                                                                                                                         |
 | ------------------------ | --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `lavish-axi <html-file>` | `--no-open`           | Ensure the server/session exists without opening another browser window.                                                                                                                                                            |
+| `lavish-axi <html-file>` | `--no-gate`           | Skip the open-time layout curtain for this browser open.                                                                                                                                                                            |
 | `lavish-axi shiny`       | `--url <url>`         | Proxy an already running Shiny app (Attached mode).                                                                                                                                                                                 |
 | `lavish-axi shiny`       | `--no-open`           | Ensure the server/session exists without opening another browser window.                                                                                                                                                            |
+| `lavish-axi quarto`      | `--no-open`           | Ensure the server/session exists without opening another browser window.                                                                                                                                                            |
 | `lavish-axi poll`        | `--agent-reply "..."` | Show the agent's reply in the existing browser chat before polling again.                                                                                                                                                           |
 | `lavish-axi poll`        | `--timeout-ms <ms>`   | Test/debug escape hatch only; agents should normally omit it and leave the long poll running.                                                                                                                                       |
 | `lavish-axi stop`        | `--port <port>`       | Shut down a server running on a non-default port.                                                                                                                                                                                   |

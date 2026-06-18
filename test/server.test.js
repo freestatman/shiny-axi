@@ -14,7 +14,8 @@ import {
   resolveWatchTarget,
   serve,
 } from "../src/server.js";
-import { canonicalFile, sessionKey } from "../src/session-store.js";
+import { canonicalFile, sessionKey, SessionStore } from "../src/session-store.js";
+import { detectQuarto } from "../src/quarto-process.js";
 
 async function chromeClientSource() {
   return readFile(new URL("../src/chrome-client.js", import.meta.url), "utf8");
@@ -588,7 +589,20 @@ test("hot reload resets iframe src instead of crossing sandbox location", async 
   const js = await chromeClientSource();
 
   assert.doesNotMatch(js, /contentWindow\.location\.reload/);
-  assert.match(js, /frame\.src\s*=\s*frame\.src/);
+  assert.match(js, /frame\.src\s*=\s*artifactSrc \|\| frame\.src/);
+});
+
+test("artifact SDK audits layout after fonts and ResizeObserver settle", () => {
+  const js = createSdkJs("abc");
+
+  assert.match(js, /document\.fonts\?\.ready/);
+  assert.match(js, /new ResizeObserver\(scheduleFinish\)/);
+  assert.match(js, /type:\s*["']lavish:layoutWarnings["']/);
+  assert.match(js, /layout_warnings/);
+  assert.match(js, /page-horizontal-overflow/);
+  assert.match(js, /element-scroll-overflow/);
+  assert.match(js, /element-parent-overflow/);
+  assert.match(js, /clipped-text/);
 });
 
 test("artifact SDK reports its scroll position and restores it on request", () => {
@@ -725,6 +739,30 @@ test("session URLs use the configured linkHost while binding to loopback", async
   }
 });
 
+test("session URLs can disable the layout gate for one open", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "lavish-serve-"));
+  const artifact = path.join(dir, "artifact.html");
+  await writeFile(artifact, "<!doctype html><html><body></body></html>");
+  const server = await serve({ port: 0, stateFile: path.join(dir, "state.json"), version: "9.9.9-test" });
+  try {
+    const res = await fetch(`http://127.0.0.1:${server.port}/api/sessions`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ file: artifact, noGate: true }),
+    });
+    const body = await res.json();
+
+    assert.match(body.url, /[?&]no-gate=1/);
+    const chrome = await (await fetch(body.url)).text();
+    assert.match(chrome, /<body class="lavish">/);
+    assert.match(chrome, /id="layoutGateOverlay" hidden/);
+    assert.match(chrome, /"layoutGateEnabled":false/);
+  } finally {
+    await server.close();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("serve rejects fast when the bind host is unavailable", async () => {
   const dir = await mkdtemp(path.join(tmpdir(), "lavish-serve-"));
   try {
@@ -779,6 +817,61 @@ test("/artifact serves files copied under the artifact directory", async () => {
   } finally {
     await server.close();
     await rm(parent, { recursive: true, force: true });
+  }
+});
+
+test("layout warnings wake the same long-poll feedback channel as human prompts", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "lavish-serve-"));
+  const artifact = path.join(dir, "artifact.html");
+  await writeFile(artifact, "<!doctype html><html><body></body></html>");
+  const server = await serve({ port: 0, stateFile: path.join(dir, "state.json"), version: "9.9.9-test" });
+  try {
+    const base = `http://127.0.0.1:${server.port}`;
+    const open = await fetch(`${base}/api/sessions`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ file: artifact }),
+    });
+    const { key } = await open.json();
+
+    const pollPromise = fetch(`${base}/api/poll?file=${encodeURIComponent(artifact)}&timeoutMs=5000`).then((res) =>
+      res.json(),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const warningResponse = await fetch(`${base}/api/${key}/layout-warnings`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        layout_warnings: [
+          {
+            selector: "html",
+            kind: "page-horizontal-overflow",
+            overflowPx: 12,
+            viewportWidth: 720,
+            severity: "error",
+          },
+        ],
+      }),
+    });
+    assert.equal(warningResponse.status, 200);
+
+    assert.deepEqual(await pollPromise, {
+      status: "feedback",
+      dom_snapshot: "",
+      prompts: [],
+      layout_warnings: [
+        {
+          selector: "html",
+          kind: "page-horizontal-overflow",
+          overflowPx: 12,
+          viewportWidth: 720,
+          severity: "error",
+        },
+      ],
+    });
+  } finally {
+    await server.close();
+    await rm(dir, { recursive: true, force: true });
   }
 });
 
@@ -1617,6 +1710,30 @@ test("ended session shows an overlay card over the dimmed chrome", async () => {
   assert.match(js, /moreButton\.disabled = true/);
 });
 
+test("layout gate curtain reuses the ended overlay card styling", async () => {
+  const html = createChromeHtml({ key: "abc", file: "/tmp/artifact.html" });
+  const noGateHtml = createChromeHtml({ key: "abc", file: "/tmp/artifact.html" }, { layoutGateEnabled: false });
+  const js = await chromeClientSource();
+  const css = await chromeCssSource();
+
+  assert.match(html, /<body class="lavish layout-gate-active">/);
+  assert.match(
+    html,
+    /<iframe id="artifact" sandbox="allow-scripts allow-forms allow-popups allow-downloads" data-artifact-src="\/artifact\/abc\/index\.html"><\/iframe>/,
+  );
+  assert.doesNotMatch(html, /<iframe id="artifact"[^>]* src=/);
+  assert.match(html, /class="ended-overlay layout-gate-overlay" id="layoutGateOverlay"/);
+  assert.match(html, /<div class="ended-card"><div class="ended-title" id="layoutGateTitle">Checking layout/);
+  assert.match(html, /class="ended-copy" id="layoutGateCopy"/);
+  assert.match(html, /class="button ended-action" id="layoutGateAction" type="button">Show anyway/);
+  assert.match(css, /body\.layout-gate-active iframe#artifact\{[^}]*opacity:0/);
+  assert.match(css, /\.ended-action\{[^}]*margin-top:var\(--space-8\)/);
+  assert.match(js, /layoutGateAction\.onclick = \(\) => forceRevealLayoutGate\("manual"\)/);
+  assert.match(noGateHtml, /<body class="lavish">/);
+  assert.match(noGateHtml, /id="layoutGateOverlay" hidden/);
+  assert.match(noGateHtml, /"layoutGateEnabled":false/);
+});
+
 test("annotation card queues prompt on Enter and inserts newline on Shift+Enter", () => {
   const js = createSdkJs("abc");
 
@@ -1700,6 +1817,251 @@ test("POST /api/shiny-sessions creates a session with type=shiny", async () => {
     const sessionHtml = await sessionRes.text();
     assert.match(sessionHtml, /Shiny App/);
     assert.match(sessionHtml, /src="\/shiny\/[a-f0-9]{16}\/"/);
+  } finally {
+    await server.close();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("resolveWatchTarget returns directory scope for Quarto sessions", async () => {
+  const target = await resolveWatchTarget({
+    type: "quarto",
+    file: "/tmp/doc.html",
+    qmdFile: "/tmp/doc.qmd",
+  });
+
+  assert.equal(target.scope, "directory");
+  assert.equal(target.path, "/tmp");
+  assert.ok(typeof target.options.ignored === "function");
+  assert.equal(target.options.ignored("/tmp/doc.html"), true);
+  assert.equal(target.options.ignored("/tmp/other.html"), false);
+  assert.equal(target.options.ignored("/tmp/_freeze"), true);
+  assert.equal(target.options.ignored("/tmp/doc_files/libs/jquery.js"), true);
+
+  // Production case: session.file is the QMD file
+  const targetProd = await resolveWatchTarget({
+    type: "quarto",
+    file: "/tmp/doc.qmd",
+    qmdFile: "/tmp/doc.qmd",
+  });
+  assert.equal(targetProd.options.ignored("/tmp/doc.html"), true);
+  assert.equal(targetProd.options.ignored("/tmp/doc.qmd"), false);
+});
+
+test("createChromeHtml renders correct iframe for Quarto sessions", () => {
+  const html = createChromeHtml({
+    type: "quarto",
+    key: "quarto123",
+    file: "/tmp/doc.html",
+    qmdFile: "/tmp/doc.qmd",
+    chat: [],
+  });
+
+  assert.match(html, /iframe id="artifact" sandbox="allow-scripts allow-forms allow-popups allow-downloads"/);
+  assert.match(html, /src="\/artifact\/quarto123\/index\.html"/);
+  assert.match(html, /Quarto Doc/);
+  assert.match(html, /Re-render & reload/);
+});
+
+test("POST /api/quarto-sessions creates a session with type=quarto", async () => {
+  const detect = await detectQuarto();
+  if (!detect.ok) {
+    return;
+  }
+
+  const dir = await mkdtemp(path.join(tmpdir(), "lavish-server-quarto-"));
+  const state = path.join(dir, "state.json");
+  const server = await serve({ port: 0, stateFile: state });
+
+  const qmdFile = path.join(dir, "document.qmd");
+  const qmdContent = `---
+title: "Test Document"
+format: html
+---
+
+# Hello Quarto
+`;
+
+  try {
+    await writeFile(qmdFile, qmdContent, "utf8");
+    const base = `http://127.0.0.1:${server.port}`;
+    const res = await fetch(`${base}/api/quarto-sessions`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        qmdFile,
+      }),
+    });
+
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.status, "opened");
+    assert.ok(body.url);
+
+    // Retrieve session and verify details
+    const sessionRes = await fetch(`${base}/session/${body.key}`);
+    assert.equal(sessionRes.status, 200);
+    const sessionHtml = await sessionRes.text();
+    assert.match(sessionHtml, /Quarto Doc/);
+    assert.match(sessionHtml, /src="\/artifact\/[a-f0-9]{16}\/index\.html"/);
+
+    // Verify artifact serves the injected html
+    const artifactRes = await fetch(`${base}/artifact/${body.key}/index.html`);
+    assert.equal(artifactRes.status, 200);
+    const artifactHtml = await artifactRes.text();
+    assert.match(artifactHtml, /Hello Quarto/);
+    assert.match(artifactHtml, /sdk\.js\?key=/);
+  } finally {
+    await server.close();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("resolveWatchTarget returns directory scope for Quarto Shiny sessions", async () => {
+  const target = await resolveWatchTarget({
+    type: "quarto-shiny",
+    file: "/tmp/doc.qmd",
+    qmdFile: "/tmp/doc.qmd",
+  });
+
+  assert.equal(target.scope, "directory");
+  assert.equal(target.path, "/tmp");
+  assert.match(String(target.options.ignored), /_freeze|_site/);
+});
+
+test("createChromeHtml renders correct iframe for Quarto Shiny sessions", () => {
+  const html = createChromeHtml({
+    type: "quarto-shiny",
+    key: "quarto123",
+    file: "/tmp/doc.qmd",
+    qmdFile: "/tmp/doc.qmd",
+    chat: [],
+  });
+
+  assert.match(
+    html,
+    /iframe id="artifact" sandbox="allow-scripts allow-forms allow-popups allow-downloads allow-same-origin"/,
+  );
+  assert.match(html, /src="\/shiny\/quarto123\/"/);
+  assert.match(html, /Quarto Shiny/);
+  assert.match(html, /Reload app/);
+});
+
+test("POST /api/quarto-sessions creates a session with type=quarto-shiny", async () => {
+  const detect = await detectQuarto();
+  if (!detect.ok) {
+    return;
+  }
+
+  const dir = await mkdtemp(path.join(tmpdir(), "lavish-server-quarto-shiny-"));
+  const state = path.join(dir, "state.json");
+  const server = await serve({ port: 0, stateFile: state });
+
+  const qmdFile = path.join(dir, "app.qmd");
+  const qmdContent = `---
+title: "Interactive Shiny App"
+format: html
+server: shiny
+---
+
+\`\`\`{r}
+numericInput("n", "N", 10)
+\`\`\`
+
+\`\`\`{r}
+#| context: server
+\`\`\`
+`;
+
+  try {
+    await writeFile(qmdFile, qmdContent, "utf8");
+    const base = `http://127.0.0.1:${server.port}`;
+    const res = await fetch(`${base}/api/quarto-sessions`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        qmdFile,
+      }),
+    });
+
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.status, "opened");
+    assert.equal(body.type, "quarto-shiny");
+    assert.ok(body.url);
+
+    // Retrieve session and verify details
+    const sessionRes = await fetch(`${base}/session/${body.key}`);
+    assert.equal(sessionRes.status, 200);
+    const sessionHtml = await sessionRes.text();
+    assert.match(sessionHtml, /Quarto Shiny/);
+    assert.match(sessionHtml, /src="\/shiny\/[a-f0-9]{16}\/"/);
+  } finally {
+    await server.close();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("quarto-shiny session watch restarts server process on file change", async () => {
+  const detect = await detectQuarto();
+  if (!detect.ok) {
+    return;
+  }
+
+  const dir = await mkdtemp(path.join(tmpdir(), "lavish-server-quarto-shiny-watch-"));
+  const state = path.join(dir, "state.json");
+  const server = await serve({ port: 0, stateFile: state });
+
+  const qmdFile = path.join(dir, "app.qmd");
+  const qmdContent = `---
+title: "Interactive Shiny App"
+format: html
+server: shiny
+---
+
+\`\`\`{r}
+numericInput("n", "N", 10)
+\`\`\`
+
+\`\`\`{r}
+#| context: server
+\`\`\`
+`;
+
+  try {
+    await writeFile(qmdFile, qmdContent, "utf8");
+    const base = `http://127.0.0.1:${server.port}`;
+    const res = await fetch(`${base}/api/quarto-sessions`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ qmdFile }),
+    });
+
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    const key = body.key;
+
+    // Get initial session to find original PID
+    const store = new SessionStore(state);
+    const s1 = await store.findByKey(key);
+    const originalPid = s1.shinyPid;
+    assert.ok(originalPid);
+
+    // Update the QMD file
+    await writeFile(qmdFile, qmdContent + "\n# added comment\n", "utf8");
+
+    // Wait for watcher to trigger restart
+    let restarted = false;
+    for (let i = 0; i < 20; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      const s2 = await store.findByKey(key);
+      if (s2.shinyPid && s2.shinyPid !== originalPid) {
+        restarted = true;
+        break;
+      }
+    }
+
+    assert.ok(restarted, "Shiny process should have restarted with a new PID");
   } finally {
     await server.close();
     await rm(dir, { recursive: true, force: true });

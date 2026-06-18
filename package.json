@@ -1,6 +1,6 @@
 {
   "name": "lavish-axi",
-  "version": "0.1.30",
+  "version": "0.1.31",
   "packageManager": "pnpm@11.1.1",
   "description": "HTML is the new markdown. Lavish is the new editor for your HTML artifacts.",
   "type": "module",
@@ -11,6 +11,7 @@
     "dist",
     "skills/lavish",
     "skills/lavish-shiny",
+    "skills/lavish-quarto",
     "lavish-editor-marketing/renders/lavish-editor-marketing.gif",
     "LICENSE",
     "README.md"
