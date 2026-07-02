@@ -643,7 +643,7 @@ test("chrome waits for the replacement server before version-driven reload", asy
 test("chrome restores queued prompts from tab storage after reload", async () => {
   const js = await chromeClientSource();
 
-  assert.match(js, /lavish-axi:queued:/);
+  assert.match(js, /shiny-axi:queued:/);
   assert.match(js, /function loadQueuedPrompts\(\)/);
   assert.match(js, /const queued = loadQueuedPrompts\(\)/);
   assert.match(js, /sessionStorage\.getItem\(queueStorageKey\)/);
@@ -998,13 +998,13 @@ test("POST /shutdown stops the listener so the client can spawn a fresh server",
 
 test("resolveIdleTimeoutMs defaults, parses, and only explicit opt-outs disable", () => {
   assert.equal(resolveIdleTimeoutMs({}), 30 * 60_000);
-  assert.equal(resolveIdleTimeoutMs({ LAVISH_AXI_IDLE_TIMEOUT_MS: "" }), 30 * 60_000);
-  assert.equal(resolveIdleTimeoutMs({ LAVISH_AXI_IDLE_TIMEOUT_MS: "5000" }), 5000);
-  assert.equal(resolveIdleTimeoutMs({ LAVISH_AXI_IDLE_TIMEOUT_MS: "0" }), null);
-  assert.equal(resolveIdleTimeoutMs({ LAVISH_AXI_IDLE_TIMEOUT_MS: "off" }), null);
-  assert.equal(resolveIdleTimeoutMs({ LAVISH_AXI_IDLE_TIMEOUT_MS: "-1" }), 30 * 60_000);
-  assert.equal(resolveIdleTimeoutMs({ LAVISH_AXI_IDLE_TIMEOUT_MS: "30000ms" }), 30 * 60_000);
-  assert.equal(resolveIdleTimeoutMs({ LAVISH_AXI_IDLE_TIMEOUT_MS: "later" }), 30 * 60_000);
+  assert.equal(resolveIdleTimeoutMs({ SHINY_AXI_IDLE_TIMEOUT_MS: "" }), 30 * 60_000);
+  assert.equal(resolveIdleTimeoutMs({ SHINY_AXI_IDLE_TIMEOUT_MS: "5000" }), 5000);
+  assert.equal(resolveIdleTimeoutMs({ SHINY_AXI_IDLE_TIMEOUT_MS: "0" }), null);
+  assert.equal(resolveIdleTimeoutMs({ SHINY_AXI_IDLE_TIMEOUT_MS: "off" }), null);
+  assert.equal(resolveIdleTimeoutMs({ SHINY_AXI_IDLE_TIMEOUT_MS: "-1" }), 30 * 60_000);
+  assert.equal(resolveIdleTimeoutMs({ SHINY_AXI_IDLE_TIMEOUT_MS: "30000ms" }), 30 * 60_000);
+  assert.equal(resolveIdleTimeoutMs({ SHINY_AXI_IDLE_TIMEOUT_MS: "later" }), 30 * 60_000);
 });
 
 async function expectDoneWithin(server, ms) {

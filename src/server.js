@@ -44,11 +44,11 @@ const DEFAULT_IDLE_TIMEOUT_MS = 30 * 60_000;
 
 // A detached server should not live forever. When no browser chrome (SSE) and no agent poll
 // are connected for this long, the server shuts itself down so it stops dangling. The next
-// `lavish-axi <file>` invocation re-spawns a fresh server and adopts the session from
-// state.json. Set LAVISH_AXI_IDLE_TIMEOUT_MS to 0/off to disable, or to a custom millisecond
+// `shiny-axi <file>` invocation re-spawns a fresh server and adopts the session from
+// state.json. Set SHINY_AXI_IDLE_TIMEOUT_MS to 0/off to disable, or to a custom millisecond
 // budget.
 export function resolveIdleTimeoutMs(env = process.env) {
-  const raw = env.LAVISH_AXI_IDLE_TIMEOUT_MS?.trim();
+  const raw = env.SHINY_AXI_IDLE_TIMEOUT_MS?.trim();
   if (raw === undefined || raw === "") return DEFAULT_IDLE_TIMEOUT_MS;
   if (raw === "0" || raw.toLowerCase() === "off") return null;
   const value = Number(raw);
@@ -77,15 +77,15 @@ export async function serve({
   const shinyProcesses = new Map();
   const quartoRenders = new Map();
   const proxies = new Map();
-  const verbose = debug || process.env.LAVISH_AXI_DEBUG === "1";
+  const verbose = debug || process.env.SHINY_AXI_DEBUG === "1";
   const writeLog = typeof log === "function" ? log : (line) => process.stderr.write(`${line}\n`);
-  const logEvent = verbose ? (line) => writeLog(`[lavish] ${line}`) : null;
+  const logEvent = verbose ? (line) => writeLog(`[shiny-axi] ${line}`) : null;
   let publicPort = port;
 
   app.use(express.json({ limit: "2mb" }));
 
   app.get("/health", (req, res) => {
-    res.json({ ok: true, app: "lavish-axi", version });
+    res.json({ ok: true, app: "shiny-axi", version });
   });
 
   let shutdownResolve;

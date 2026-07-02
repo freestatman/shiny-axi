@@ -5,16 +5,16 @@ import { createHomeOutput } from "../src/cli.js";
 import { SKILL_DESCRIPTION, createSkillMarkdown } from "../src/skill.js";
 
 function skillCommandText(text) {
-  return text.replaceAll("`lavish-axi", "`npx -y lavish-axi");
+  return text.replaceAll("`shiny-axi", "`npx -y shiny-axi");
 }
 
-test("createSkillMarkdown emits valid frontmatter naming the lavish skill", () => {
+test("createSkillMarkdown emits valid frontmatter naming the shiny-axi skill", () => {
   const md = createSkillMarkdown();
   assert.ok(md.startsWith("---\n"), "starts with frontmatter fence");
   const end = md.indexOf("\n---\n", 4);
   assert.ok(end > 0, "frontmatter is closed");
   const frontmatter = md.slice(4, end);
-  assert.match(frontmatter, /^name: lavish$/m);
+  assert.match(frontmatter, /^name: shiny-axi$/m);
   assert.match(frontmatter, /^description: /m);
   assert.match(frontmatter, /^argument-hint: /m);
   assert.ok(frontmatter.includes(SKILL_DESCRIPTION), "frontmatter carries the skill description");
@@ -24,12 +24,12 @@ test("createSkillMarkdown emits Hermes Agent metadata in frontmatter", () => {
   const md = createSkillMarkdown();
   const frontmatter = md.slice(4, md.indexOf("\n---\n", 4));
 
-  assert.match(frontmatter, /^author: Kun Chen \(kunchenguid\)$/m);
+  assert.match(frontmatter, /^author: freestatman$/m);
   assert.match(frontmatter, /^metadata:\n {2}hermes:\n {4}tags: \[[^\]]+\]\n {4}category: \S+$/m);
   assert.doesNotMatch(frontmatter, /^version:/m, "version is omitted to avoid release churn");
 });
 
-test("createSkillMarkdown handles explicit /lavish invocation arguments", () => {
+test("createSkillMarkdown handles explicit /shiny-axi invocation arguments", () => {
   const md = createSkillMarkdown();
   const body = md.slice(md.indexOf("\n---\n", 4) + 5);
 
@@ -39,7 +39,7 @@ test("createSkillMarkdown handles explicit /lavish invocation arguments", () => 
 
 test("createSkillMarkdown mirrors the no-args home output", () => {
   const md = createSkillMarkdown();
-  const home = createHomeOutput({ bin: "lavish-axi", sessions: [], includeSessions: false });
+  const home = createHomeOutput({ bin: "shiny-axi", sessions: [], includeSessions: false });
 
   assert.ok(md.includes(skillCommandText(home.description)), "includes the product description");
 
@@ -80,9 +80,9 @@ test("createSkillMarkdown omits setup hooks guidance", () => {
 test("createSkillMarkdown uses non-interactive npx commands", () => {
   const md = createSkillMarkdown();
 
-  assert.match(md, /`npx -y lavish-axi <html-file>`/);
-  assert.match(md, /If lavish-axi output shows a follow-up command starting with `lavish-axi`/);
-  assert.match(md, /run it as `npx -y lavish-axi/);
-  assert.doesNotMatch(md, /`npx lavish-axi/);
-  assert.doesNotMatch(md, /Run `lavish-axi/);
+  assert.match(md, /`npx -y shiny-axi <html-file>`/);
+  assert.match(md, /If shiny-axi output shows a follow-up command starting with `shiny-axi`/);
+  assert.match(md, /run it as `npx -y shiny-axi/);
+  assert.doesNotMatch(md, /`npx shiny-axi/);
+  assert.doesNotMatch(md, /Run `shiny-axi/);
 });

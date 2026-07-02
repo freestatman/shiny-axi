@@ -4,7 +4,7 @@ import { createHomeOutput } from "./cli.js";
 // Kept terse and outcome-focused so it fires on "about to show something visual" intents.
 export const SKILL_DESCRIPTION =
   "Turn complex or visual agent responses into rich, reviewable HTML artifacts the user can " +
-  "annotate and send feedback on, using the lavish-axi CLI. Use when about to give a plan, " +
+  "annotate and send feedback on, using the shiny-axi CLI. Use when about to give a plan, " +
   "comparison, diagram, table, code diff, report, or anything easier to grasp visually than as prose.";
 
 function bullets(items) {
@@ -16,36 +16,36 @@ function playbookList(playbooks) {
 }
 
 function skillCommandText(text) {
-  return text.replaceAll("`lavish-axi", "`npx -y lavish-axi");
+  return text.replaceAll("`shiny-axi", "`npx -y shiny-axi");
 }
 
 /**
- * Render the installable SKILL.md for the lavish skill. The body mirrors what
- * `lavish-axi` prints with no arguments (minus live session state), while the
+ * Render the installable SKILL.md for the shiny-axi skill. The body mirrors what
+ * `shiny-axi` prints with no arguments (minus live session state), while the
  * frontmatter adds discovery metadata for Agent Skills and Hermes Agent.
  *
  * @returns {string} full SKILL.md contents including YAML frontmatter
  */
 export function createSkillMarkdown() {
-  const home = createHomeOutput({ bin: "lavish-axi", sessions: [], includeSessions: false });
+  const home = createHomeOutput({ bin: "shiny-axi", sessions: [], includeSessions: false });
 
   return `---
-name: lavish
+name: shiny-axi
 description: ${SKILL_DESCRIPTION}
 argument-hint: <what the artifact should show>
-author: Kun Chen (kunchenguid)
+author: freestatman
 metadata:
   hermes:
     tags: [html, review, artifacts, visualization]
     category: productivity
 ---
 
-# Lavish Editor
+# Shiny AXI Editor
 
 ${skillCommandText(home.description)}
 
-You do not need lavish-axi installed globally - invoke it with \`npx -y lavish-axi <html-file>\`.
-If lavish-axi output shows a follow-up command starting with \`lavish-axi\`, run it as \`npx -y lavish-axi ...\` instead.
+You do not need shiny-axi installed globally - invoke it with \`npx -y shiny-axi <html-file>\`.
+If shiny-axi output shows a follow-up command starting with \`shiny-axi\`, run it as \`npx -y shiny-axi ...\` instead.
 
 ## Request
 

@@ -1,17 +1,17 @@
 {
-  "name": "lavish-axi",
+  "name": "shiny-axi",
   "version": "0.1.31",
   "packageManager": "pnpm@11.1.1",
-  "description": "HTML is the new markdown. Lavish is the new editor for your HTML artifacts.",
+  "description": "R Shiny and Quarto review and interaction via lavish browser.",
   "type": "module",
   "bin": {
-    "lavish-axi": "dist/cli.mjs"
+    "shiny-axi": "dist/cli.mjs"
   },
   "files": [
     "dist",
-    "skills/lavish",
-    "skills/lavish-shiny",
-    "skills/lavish-quarto",
+    "skills/shiny-axi",
+    "skills/shiny",
+    "skills/quarto",
     "lavish-editor-marketing/renders/lavish-editor-marketing.gif",
     "LICENSE",
     "README.md"
@@ -60,12 +60,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/kunchenguid/lavish-axi.git"
+    "url": "git+https://github.com/freestatman/shiny-axi.git"
   },
   "bugs": {
-    "url": "https://github.com/kunchenguid/lavish-axi/issues"
+    "url": "https://github.com/freestatman/shiny-axi/issues"
   },
-  "homepage": "https://github.com/kunchenguid/lavish-axi#readme",
+  "homepage": "https://github.com/freestatman/shiny-axi#readme",
   "publishConfig": {
     "access": "public"
   }
