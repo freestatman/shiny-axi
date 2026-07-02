@@ -1,0 +1,82 @@
+---
+title: "Quarto Report: Health & Crime Analysis"
+author: "Lavish Analyst"
+date: "June 17, 2026"
+format:
+  html:
+    embed-resources: true
+    theme: cosmo
+    toc: true
+---
+
+# Introduction
+
+This is an example Quarto document showcasing a summary table created using the `gtsummary` package and an interactive chart rendered using the `echarts4r` package.
+
+## Demographic Summary
+
+Below is a demographic summary table using the built-in `trial` dataset from `gtsummary`.
+
+```{r}
+#| label: summary-table
+#| echo: false
+#| message: false
+#| warning: false
+library(gtsummary)
+library(dplyr)
+
+tbl <- trial %>%
+  select(trt, age, grade, response) %>%
+  tbl_summary(
+    by = trt,
+    label = list(age ~ "Patient Age", grade ~ "Tumor Grade", response ~ "Tumor Response")
+  ) %>%
+  add_p()
+
+# Insert blank rows before Tumor Grade and Tumor Response
+blank_row_1 <- tbl$table_body[1, ]
+blank_row_1[] <- lapply(blank_row_1, function(x) NA)
+blank_row_1$variable <- "blank_space_1"
+blank_row_1$row_type <- "label"
+blank_row_1$label <- ""
+
+blank_row_2 <- tbl$table_body[1, ]
+blank_row_2[] <- lapply(blank_row_2, function(x) NA)
+blank_row_2$variable <- "blank_space_2"
+blank_row_2$row_type <- "label"
+blank_row_2$label <- ""
+
+tbl$table_body <- bind_rows(
+  tbl$table_body[1:2, ],
+  blank_row_1,
+  tbl$table_body[3:6, ],
+  blank_row_2,
+  tbl$table_body[7:nrow(tbl$table_body), ]
+)
+
+tbl %>%
+  as_gt() %>%
+  gt::tab_header(title = "Table Header")
+```
+
+## Interactive Arrests Chart
+
+Below is an interactive chart created using `echarts4r` displaying a subset of the US Arrests dataset.
+
+```{r}
+#| label: echart-plot
+#| echo: false
+#| message: false
+#| warning: false
+library(echarts4r)
+
+USArrests %>%
+  mutate(State = rownames(USArrests)) %>%
+  e_charts(State) %>%
+  e_bar(Assault, name = "Assault Rate") %>%
+  e_line(Rape, name = "Rape Rate") %>%
+  e_color(c("purple", "indigo")) %>%
+  e_x_axis(axisLabel = list(interval = 0, rotate = 45)) %>%
+  e_title("Crime Rates by State") %>%
+  e_tooltip(trigger = "axis")
+```

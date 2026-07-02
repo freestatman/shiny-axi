@@ -7,5 +7,4 @@ coverage/
 *.log
 
 /demo-output
-/examples
 /.agents/skills/lavish-quarto
