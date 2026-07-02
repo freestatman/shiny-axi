@@ -1,22 +1,22 @@
 ---
-name: lavish-quarto
-description: Launch a Quarto document session and use Lavish Editor to interactively annotate the rendered HTML document, letting the agent modify the QMD source code based on user comments.
+name: quarto
+description: Launch a Quarto document session and use shiny-axi to interactively review and annotate the rendered HTML document.
 argument-hint: <what part of the Quarto document to review or modify>
-author: Antigravity
+author: freestatman
 metadata:
   hermes:
     tags: [quarto, markdown, qmd, review, interactive, annotation]
     category: productivity
 ---
 
-# Lavish Quarto
+# Quarto AXI
 
-Lavish Quarto helps agents interactively review and iterate on Quarto (`.qmd`) documents. By rendering a `.qmd` document to HTML and serving it through Lavish, the user can visually annotate elements or selected text ranges and send feedback directly to the agent. The agent then modifies the `.qmd` source code (markdown, YAML frontmatter, code chunks) to update the document.
+Quarto AXI helps agents interactively review and iterate on Quarto (`.qmd`) documents. By rendering a `.qmd` document to HTML and serving it, the user can visually annotate elements or selected text ranges and send feedback directly to the agent. The agent then modifies the `.qmd` source code (markdown, YAML frontmatter, code chunks) to update the document.
 
-You do not need lavish-axi installed globally - invoke it with `npx -y lavish-axi quarto <file.qmd>`.
-If lavish-axi output shows a follow-up command starting with `lavish-axi`, run it as `npx -y lavish-axi ...` instead.
+You do not need shiny-axi installed globally - invoke it with `npx -y shiny-axi quarto <file.qmd>`.
+If shiny-axi output shows a follow-up command starting with `shiny-axi`, run it as `npx -y shiny-axi ...` instead.
 
-**Important**: Do NOT use the regular `lavish` skill for Quarto documents. Always use `lavish-axi quarto`, never `lavish-axi <file.html>`. The `lavish` skill creates static HTML artifacts; `lavish-quarto` automatically renders your `.qmd` source, manages the rendered HTML, watches for source changes, and handles auto-re-rendering.
+**Important**: Do NOT use the regular visual review skill for Quarto documents. Always use `shiny-axi quarto`, never `shiny-axi <file.html>`. The static visual review skill creates static HTML artifacts; `quarto` automatically renders your `.qmd` source, manages the rendered HTML, watches for source changes, and handles auto-re-rendering.
 
 ## When to use
 
@@ -29,15 +29,15 @@ Use this skill when:
 ## Workflow
 
 1. **Verify Quarto environment**: Confirm Quarto is installed (`quarto --version`).
-2. **Launch Quarto session**: Run `npx -y lavish-axi quarto <file.qmd>`.
-3. **Poll for annotations**: Run `npx -y lavish-axi poll <file.qmd>`. The poll stays silent and waits for user annotations - leave it running, never kill it.
+2. **Launch Quarto session**: Run `npx -y shiny-axi quarto <file.qmd>`.
+3. **Poll for annotations**: Run `npx -y shiny-axi poll <file.qmd>`. The poll stays silent and waits for user annotations - leave it running, never kill it.
 4. **Receive feedback**: When the user clicks "Send to Agent", the poll returns:
    - `prompts`: User annotations with element selectors, tags, and comments. For text annotations, it includes selected text ranges and boundary anchors.
    - `dom_snapshot`: A snapshot of the rendered document's DOM tree at the time of annotation.
 5. **Apply code modifications**: Locate the corresponding sections or code chunks in the `.qmd` file and edit them.
 6. **Auto re-render**: Saving changes to the `.qmd` file (or other files in the same directory) will automatically trigger `quarto render` and reload the document in the user's browser.
-7. **Reply & Wait**: Run `npx -y lavish-axi poll <file.qmd> --agent-reply "Applied the changes!"` to show your message in the browser and wait for further annotations.
-8. **End session**: Run `npx -y lavish-axi end <file.qmd>` when the review session is complete.
+7. **Reply & Wait**: Run `npx -y shiny-axi poll <file.qmd> --agent-reply "Applied the changes!"` to show your message in the browser and wait for further annotations.
+8. **End session**: Run `npx -y shiny-axi end <file.qmd>` when the review session is complete.
 
 ## Mapping DOM Elements to Quarto Source
 

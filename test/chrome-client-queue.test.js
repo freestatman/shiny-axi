@@ -191,7 +191,7 @@ async function createChromeHarness({
       handler({ source: frame.contentWindow, data });
     },
     queued() {
-      return JSON.parse(storage.get("lavish-axi:queued:abc") || "[]");
+      return JSON.parse(storage.get("shiny-axi:queued:abc") || "[]");
     },
     runTimers,
     srcLoads,

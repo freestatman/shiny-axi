@@ -18,11 +18,11 @@ import { detectQuarto } from "./quarto-process.js";
 
 const COMMANDS = new Set(["open", "poll", "end", "stop", "server", "playbook", "design", "setup", "shiny", "quarto"]);
 const DESCRIPTION =
-  "Lavish Editor helps agents turn rich HTML artifacts into collaborative human review surfaces. Whenever you are about to give user a complex response that will be easier to understand via a rich / interactive page, consider using Lavish Editor. " +
-  "First generate an interactive HTML artifact according to user request, then run `lavish-axi <html-file>` so the user can visually review it, annotate elements or selected text, queue prompts, and send feedback back through `lavish-axi poll`.";
+  "Shiny AXI helps agents turn R Shiny applications and Quarto documents into collaborative human review surfaces. Whenever you are about to build, modify, or debug a Shiny app or Quarto report, consider using Shiny AXI. " +
+  "First launch the session, then run `shiny-axi shiny <app-dir>` or `shiny-axi quarto <file.qmd>` so the user can visually review it, annotate elements, and send feedback back through `shiny-axi poll`.";
 // Inlined at build time from package.json; falls back to reading package.json so source-run tests work.
 export const VERSION =
-  process.env.LAVISH_AXI_BUILD_VERSION ||
+  process.env.SHINY_AXI_BUILD_VERSION ||
   JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).version;
 
 export async function run(argv) {
@@ -31,7 +31,7 @@ export async function run(argv) {
   const isTopLevelHelp = argv.length === 1 && argv[0] === "--help";
   const command = telemetryCommandName(argv);
   const telemetry = initDefaultTelemetry({
-    app: "lavish-axi",
+    app: "shiny-axi",
     version: VERSION,
     platform: process.platform,
     arch: process.arch,
@@ -45,7 +45,7 @@ export async function run(argv) {
       topLevelHelp: TOP_LEVEL_HELP,
       home: async () =>
         createHomeOutput({
-          bin: process.argv[1] || "lavish-axi",
+          bin: process.argv[1] || "shiny-axi",
           sessions: isTopLevelHelp ? [] : await visibleSessions(),
           includeSessions: !isTopLevelHelp,
         }),
@@ -123,15 +123,15 @@ export function createHomeOutput({ bin, sessions, includeSessions = true }) {
     ],
     playbooks: listPlaybooks(),
     help: [
-      "Run `lavish-axi <html-file>` to open or resume a Lavish Editor session",
-      "Unless the user specifies another location, create HTML artifacts in the current working directory under `.lavish/`",
-      "Lavish serves the html file through a local express.js server. If your html needs to reference other filesystem assets such as images, CSS, fonts, and local scripts, copy them into the same directory as the HTML file, then reference them with relative paths from that directory. Never prepend `/` to those asset paths - root paths won't work",
-      "Run `lavish-axi poll <html-file>` to wait for user feedback or browser-reported layout_warnings. It long-polls and stays silent until the user sends feedback, ends the session, or the real browser reports fresh layout_warnings, so leave it running - never kill it. Fix layout_warnings before involving the human. If your harness limits how long a foreground command may run, run the poll as a background task; if it gets killed or times out anyway, just re-run it - queued feedback is never lost",
-      "Run `lavish-axi end <html-file>` to end a session",
-      "Run `lavish-axi stop` to shut down the background server (it also self-stops when idle or after the last session ends with nothing connected)",
-      "Run `lavish-axi playbook <playbook_id>` for focused artifact guidance. One artifact often combines several playbooks (for example a plan that includes a comparison and a diagram), so read every playbook relevant to the artifact, not just one, for the best quality",
+      "Run `shiny-axi <html-file>` to open or resume a Shiny AXI session",
+      "Unless the user specifies another location, create HTML artifacts in the current working directory under `.shiny-axi/`",
+      "Shiny AXI serves the html file through a local express.js server. If your html needs to reference other filesystem assets such as images, CSS, fonts, and local scripts, copy them into the same directory as the HTML file, then reference them with relative paths from that directory. Never prepend `/` to those asset paths - root paths won't work",
+      "Run `shiny-axi poll <html-file>` to wait for user feedback or browser-reported layout_warnings. It long-polls and stays silent until the user sends feedback, ends the session, or the real browser reports fresh layout_warnings, so leave it running - never kill it. Fix layout_warnings before involving the human. If your harness limits how long a foreground command may run, run the poll as a background task; if it gets killed or times out anyway, just re-run it - queued feedback is never lost",
+      "Run `shiny-axi end <html-file>` to end a session",
+      "Run `shiny-axi stop` to shut down the background server (it also self-stops when idle or after the last session ends with nothing connected)",
+      "Run `shiny-axi playbook <playbook_id>` for focused artifact guidance. One artifact often combines several playbooks (for example a plan that includes a comparison and a diagram), so read every playbook relevant to the artifact, not just one, for the best quality",
       DESIGN_SYSTEM_HINT,
-      "Use lavish-axi when the user asks for a visual artifact, HTML explainer, interactive prototype, review surface, product or technical plan, comparison, report, or browser-based feedback loop",
+      "Use shiny-axi when the user asks for a visual artifact, HTML explainer, interactive prototype, review surface, product or technical plan, comparison, report, or browser-based feedback loop",
     ],
   };
 }
@@ -142,7 +142,7 @@ export function createPlaybookOutput(args) {
     return {
       playbooks: listPlaybooks(),
       help: [
-        "Run `lavish-axi playbook <playbook_id>` for focused artifact guidance",
+        "Run `shiny-axi playbook <playbook_id>` for focused artifact guidance",
         "One artifact often combines several playbooks (for example a plan that includes a comparison and a diagram), so read every playbook relevant to the artifact, not just one, for the best quality",
       ],
     };
@@ -151,7 +151,7 @@ export function createPlaybookOutput(args) {
   const playbook = findPlaybook(id);
   if (!playbook) {
     throw new AxiError(`Unknown playbook: ${id}`, "VALIDATION_ERROR", [
-      `Run \`lavish-axi playbook\` to list known IDs: ${playbookIds().join(", ")}`,
+      `Run \`shiny-axi playbook\` to list known IDs: ${playbookIds().join(", ")}`,
     ]);
   }
 
@@ -161,7 +161,7 @@ export function createPlaybookOutput(args) {
 export function createOpenOutput({ file, url, status }) {
   return {
     session: { file, url, status },
-    next_step: `Do not respond to the user just yet. Now you must run \`lavish-axi poll ${file}\`. This command long-polls until the user sends feedback, ends the session, or the real browser reports layout_warnings from the in-iframe layout audit, and it stays silent the whole time - that is normal, never kill it. If layout_warnings arrive, fix overflow, clipped text, or overlapping unreadable content and re-check before involving the human. Do not pass --timeout-ms during normal agent use. If your harness limits how long a foreground command may run, run the poll as a background task and wait for it to finish; if the poll still gets killed or times out, just re-run it - queued feedback is never lost. After applying feedback, run \`lavish-axi poll ${file} --agent-reply "<message for the user>"\` without --timeout-ms to show your response in Lavish Editor and wait for more feedback.`,
+    next_step: `Do not respond to the user just yet. Now you must run \`shiny-axi poll ${file}\`. This command long-polls until the user sends feedback, ends the session, or the real browser reports layout_warnings from the in-iframe layout audit, and it stays silent the whole time - that is normal, never kill it. If layout_warnings arrive, fix overflow, clipped text, or overlapping unreadable content and re-check before involving the human. Do not pass --timeout-ms during normal agent use. If your harness limits how long a foreground command may run, run the poll as a background task and wait for it to finish; if the poll still gets killed or times out, just re-run it - queued feedback is never lost. After applying feedback, run \`shiny-axi poll ${file} --agent-reply "<message for the user>"\` without --timeout-ms to show your response in Shiny AXI Editor and wait for more feedback.`,
   };
 }
 
@@ -207,7 +207,7 @@ export async function shinyCommand(args) {
 
   return {
     session: { file: absolute, url: response.url, status: response.status || "opened", type: "shiny" },
-    next_step: `Do not respond to the user just yet. Now you must run \`lavish-axi poll ${absolute}\`. This command long-polls until the user sends feedback or ends the session, and it stays silent the whole time - that is normal, never kill it. Do not pass --timeout-ms during normal agent use. If your harness limits how long a foreground command may run, run the poll as a background task and wait for it to finish; if the poll still gets killed or times out, just re-run it - queued feedback is never lost. After applying feedback, run \`lavish-axi poll ${absolute} --agent-reply "<message for the user>"\` without --timeout-ms to show your response in Lavish Editor and wait for more feedback.`,
+    next_step: `Do not respond to the user just yet. Now you must run \`shiny-axi poll ${absolute}\`. This command long-polls until the user sends feedback or ends the session, and it stays silent the whole time - that is normal, never kill it. Do not pass --timeout-ms during normal agent use. If your harness limits how long a foreground command may run, run the poll as a background task and wait for it to finish; if the poll still gets killed or times out, just re-run it - queued feedback is never lost. After applying feedback, run \`shiny-axi poll ${absolute} --agent-reply "<message for the user>"\` without --timeout-ms to show your response in Shiny AXI Editor and wait for more feedback.`,
   };
 }
 
@@ -215,7 +215,7 @@ export async function quartoCommand(args) {
   const filteredArgs = args.filter((arg) => !arg.startsWith("-"));
   const qmdFile = filteredArgs[0];
   if (!qmdFile) {
-    throw new AxiError("Missing QMD file path", "VALIDATION_ERROR", ["Usage: lavish-axi quarto <file.qmd>"]);
+    throw new AxiError("Missing QMD file path", "VALIDATION_ERROR", ["Usage: shiny-axi quarto <file.qmd>"]);
   }
 
   const ext = path.extname(qmdFile).toLowerCase();
@@ -257,14 +257,14 @@ export async function quartoCommand(args) {
       status: response.status || "opened",
       type: response.type || "quarto",
     },
-    next_step: `Do not respond to the user just yet. Now you must run \`lavish-axi poll ${absolute}\`. This command long-polls until the user sends feedback or ends the session, and it stays silent the whole time - that is normal, never kill it. Do not pass --timeout-ms during normal agent use. If your harness limits how long a foreground command may run, run the poll as a background task and wait for it to finish; if the poll still gets killed or times out, just re-run it - queued feedback is never lost. After applying feedback, run \`lavish-axi poll ${absolute} --agent-reply "<message for the user>"\` without --timeout-ms to show your response in Lavish Editor and wait for more feedback.`,
+    next_step: `Do not respond to the user just yet. Now you must run \`shiny-axi poll ${absolute}\`. This command long-polls until the user sends feedback or ends the session, and it stays silent the whole time - that is normal, never kill it. Do not pass --timeout-ms during normal agent use. If your harness limits how long a foreground command may run, run the poll as a background task and wait for it to finish; if the poll still gets killed or times out, just re-run it - queued feedback is never lost. After applying feedback, run \`shiny-axi poll ${absolute} --agent-reply "<message for the user>"\` without --timeout-ms to show your response in Shiny AXI Editor and wait for more feedback.`,
   };
 }
 
 async function openCommand(args) {
   const file = args.find((arg) => !arg.startsWith("-"));
   if (!file) {
-    throw new AxiError("HTML file path is required", "VALIDATION_ERROR", ["Run `lavish-axi <html-file>`"]);
+    throw new AxiError("HTML file path is required", "VALIDATION_ERROR", ["Run `shiny-axi <html-file>`"]);
   }
   await assertHtmlFile(file);
   const absolute = await canonicalFile(file);
@@ -283,13 +283,13 @@ async function openCommand(args) {
 }
 
 export function shouldOpenBrowser(args, env) {
-  return !args.includes("--no-open") && env.LAVISH_AXI_NO_OPEN !== "1";
+  return !args.includes("--no-open") && env.SHINY_AXI_NO_OPEN !== "1";
 }
 
 async function pollCommand(args) {
   const file = args[0];
   if (!file) {
-    throw new AxiError("File or directory path is required", "VALIDATION_ERROR", ["Run `lavish-axi poll <path>`"]);
+    throw new AxiError("File or directory path is required", "VALIDATION_ERROR", ["Run `shiny-axi poll <path>`"]);
   }
   const absolute = await canonicalFile(file);
   const baseUrl = await ensureServer();
@@ -331,20 +331,20 @@ async function pollCommand(args) {
 
 export function pollWaitBannerText(file) {
   return (
-    `[lavish-axi] Long-polling for user feedback or layout_warnings on ${file}. This stays silent until the user sends feedback, ends the session, or the browser reports fresh layout_warnings - leave it running. ` +
-    `If it gets killed or times out, re-run \`lavish-axi poll ${file}\` - queued feedback is never lost.`
+    `[shiny-axi] Long-polling for user feedback or layout_warnings on ${file}. This stays silent until the user sends feedback, ends the session, or the browser reports fresh layout_warnings - leave it running. ` +
+    `If it gets killed or times out, re-run \`shiny-axi poll ${file}\` - queued feedback is never lost.`
   );
 }
 
 export function pollWaitTickText(elapsedMs) {
   const minutes = Math.round(elapsedMs / 60_000);
-  return `[lavish-axi] Still waiting for user feedback (${minutes}m). Also waiting for fresh layout_warnings. Leave this running until the user acts or the browser reports fresh layout_warnings.`;
+  return `[shiny-axi] Still waiting for user feedback (${minutes}m). Also waiting for fresh layout_warnings. Leave this running until the user acts or the browser reports fresh layout_warnings.`;
 }
 
 export function pollInterruptedText(file) {
   return (
-    `[lavish-axi] Poll interrupted before user feedback arrived. The user may still be reviewing - ` +
-    `re-run \`lavish-axi poll ${file}\` to keep waiting; queued feedback is never lost.`
+    `[shiny-axi] Poll interrupted before user feedback arrived. The user may still be reviewing - ` +
+    `re-run \`shiny-axi poll ${file}\` to keep waiting; queued feedback is never lost.`
   );
 }
 
@@ -367,9 +367,7 @@ export function startPollWaitReporter({
 
 export function createPollOutput({ file, response }) {
   if (response.status === "missing") {
-    throw new AxiError("No active Lavish Editor session for this file", "NOT_FOUND", [
-      `Run \`lavish-axi ${file}\` first`,
-    ]);
+    throw new AxiError("No active Shiny AXI session for this file", "NOT_FOUND", [`Run \`shiny-axi ${file}\` first`]);
   }
   if (response.status === "feedback") {
     const layoutWarnings = Array.isArray(response.layout_warnings) ? response.layout_warnings : [];
@@ -386,7 +384,7 @@ export function createPollOutput({ file, response }) {
   }
   return {
     session: { file, status: response.status || "waiting" },
-    next_step: `No user feedback arrived before the optional timeout. Run \`lavish-axi poll ${file}\` without --timeout-ms to wait indefinitely - queued feedback is never lost, so re-running the poll is always safe.`,
+    next_step: `No user feedback arrived before the optional timeout. Run \`shiny-axi poll ${file}\` without --timeout-ms to wait indefinitely - queued feedback is never lost, so re-running the poll is always safe.`,
   };
 }
 
@@ -395,13 +393,13 @@ function createFeedbackNextStep(file, layoutWarningCount) {
     layoutWarningCount > 0
       ? `${layoutWarningCount} layout warning${layoutWarningCount === 1 ? "" : "s"} detected - fix horizontal overflow, clipped text, or overlapping unreadable content in ${file}, then reload or re-open the artifact and re-check before involving the human. `
       : `Apply the requested changes to ${file}. `;
-  return `${layoutPrefix}Do not respond to the user just yet. Now you must run \`lavish-axi poll ${file} --agent-reply "<message for the user>"\` without --timeout-ms unless the user ended the session. The poll waits silently until the user sends more feedback, ends the session, or reports fresh layout_warnings - never kill it. If your harness limits how long a foreground command may run, run the poll as a background task; if it still gets killed or times out, just re-run it - queued feedback is never lost.`;
+  return `${layoutPrefix}Do not respond to the user just yet. Now you must run \`shiny-axi poll ${file} --agent-reply "<message for the user>"\` without --timeout-ms unless the user ended the session. The poll waits silently until the user sends more feedback, ends the session, or reports fresh layout_warnings - never kill it. If your harness limits how long a foreground command may run, run the poll as a background task; if it still gets killed or times out, just re-run it - queued feedback is never lost.`;
 }
 
 async function endCommand(args) {
   const file = args[0];
   if (!file) {
-    throw new AxiError("File or directory path is required", "VALIDATION_ERROR", ["Run `lavish-axi end <path>`"]);
+    throw new AxiError("File or directory path is required", "VALIDATION_ERROR", ["Run `shiny-axi end <path>`"]);
   }
   const absolute = await canonicalFile(file);
   const baseUrl = await ensureServer();
@@ -426,15 +424,15 @@ export async function shutdownServerOnPort(
     requestShutdown: shutdownRequester = requestShutdown,
     waitForPortFree: portFreeWaiter = waitForPortFree,
     killProcessOnPort: portKiller = killProcessOnPort,
-    processMatchesLavish = processOnPortMatchesLavish,
+    processMatchesShiny = processOnPortMatchesShiny,
   } = {},
 ) {
   const health = await healthFetcher(baseUrl);
   if (!health) {
     return { server: { status: "not-running", port } };
   }
-  if (!(await canControlServerOnPort(port, health, processMatchesLavish))) {
-    return { server: { status: "not-lavish", port } };
+  if (!(await canControlServerOnPort(port, health, processMatchesShiny))) {
+    return { server: { status: "not-shiny-axi", port } };
   }
   await shutdownRequester(baseUrl);
   let freed = await portFreeWaiter(baseUrl, 3000);
@@ -455,25 +453,25 @@ async function designCommand() {
 
 async function setupCommand(args) {
   if (args.length !== 1 || args[0] !== "hooks") {
-    throw new AxiError("Unknown setup action", "VALIDATION_ERROR", ["Run `lavish-axi setup hooks`"]);
+    throw new AxiError("Unknown setup action", "VALIDATION_ERROR", ["Run `shiny-axi setup hooks`"]);
   }
 
   const errors = [];
   installSessionStartHooks({
-    marker: "lavish-axi",
-    binaryNames: ["lavish-axi"],
-    distEntrypoints: ["dist/cli.mjs", "bin/lavish-axi.js"],
+    marker: "shiny-axi",
+    binaryNames: ["shiny-axi"],
+    distEntrypoints: ["dist/cli.mjs", "bin/shiny-axi.js"],
     homeDir: resolveHookHomeDir(),
     onError: (message) => errors.push(message),
   });
 
   if (errors.length > 0) {
-    throw new AxiError("Failed to install lavish-axi agent hooks", "SERVER_ERROR", errors);
+    throw new AxiError("Failed to install shiny-axi agent hooks", "SERVER_ERROR", errors);
   }
 
   return {
     hooks: { status: "installed", integrations: "Claude Code, Codex, OpenCode" },
-    help: ["Restart your agent session to receive lavish-axi ambient context"],
+    help: ["Restart your agent session to receive shiny-axi ambient context"],
   };
 }
 
@@ -483,7 +481,7 @@ export function resolveHookHomeDir(env = process.env, fallback = os.homedir()) {
 
 async function serverCommand(args) {
   const port = Number(flagValue(args, "--port") || defaultPort());
-  const debug = args.includes("--verbose") || process.env.LAVISH_AXI_DEBUG === "1";
+  const debug = args.includes("--verbose") || process.env.SHINY_AXI_DEBUG === "1";
   const server = await serve({ port, stateFile: stateFile(), version: VERSION, debug });
   await server.done;
   return "";
@@ -496,13 +494,13 @@ async function visibleSessions() {
 
 async function assertHtmlFile(file) {
   if (!isHtmlPath(file)) {
-    throw new AxiError("Lavish Editor expects an HTML file", "VALIDATION_ERROR", ["Run `lavish-axi <html-file>`"]);
+    throw new AxiError("Shiny AXI Editor expects an HTML file", "VALIDATION_ERROR", ["Run `shiny-axi <html-file>`"]);
   }
   try {
     await access(file);
   } catch {
     throw new AxiError(`File not found: ${file}`, "NOT_FOUND", [
-      "Create the HTML artifact first, then run `lavish-axi <html-file>`",
+      "Create the HTML artifact first, then run `shiny-axi <html-file>`",
     ]);
   }
 }
@@ -519,9 +517,9 @@ async function ensureServer({ forceRestart = false } = {}) {
     return baseUrl;
   }
   if (existing) {
-    if (!(await canControlServerOnPort(port, existing, processOnPortMatchesLavish))) {
-      throw new AxiError(`Port ${port} is occupied by a non-Lavish server`, "SERVER_ERROR", [
-        `Stop the process using port ${port}, or set LAVISH_AXI_PORT to another port`,
+    if (!(await canControlServerOnPort(port, existing, processOnPortMatchesShiny))) {
+      throw new AxiError(`Port ${port} is occupied by a non-Shiny AXI server`, "SERVER_ERROR", [
+        `Stop the process using port ${port}, or set SHINY_AXI_PORT to another port`,
       ]);
     }
     // Stale server from an older release is squatting on the port. Ask it to shut down
@@ -547,8 +545,8 @@ async function ensureServer({ forceRestart = false } = {}) {
     }
     await delay(100);
   }
-  throw new AxiError("Lavish Editor server did not start", "SERVER_ERROR", [
-    `Run \`lavish-axi server --port ${port}\` to inspect server startup`,
+  throw new AxiError("Shiny AXI server did not start", "SERVER_ERROR", [
+    `Run \`shiny-axi server --port ${port}\` to inspect server startup`,
   ]);
 }
 
@@ -558,7 +556,7 @@ async function ensureServer({ forceRestart = false } = {}) {
 // to step aside.
 export function shouldRestartServer(currentVersion, healthBody, forceRestart = false) {
   if (!healthBody || typeof healthBody !== "object") return false;
-  if (forceRestart && healthBody.app === "lavish-axi") return true;
+  if (forceRestart && healthBody.app === "shiny-axi") return true;
   if (typeof healthBody.version !== "string" || healthBody.version === "") return true;
   return healthBody.version !== currentVersion;
 }
@@ -575,15 +573,15 @@ function localSourceServerExists() {
 export function shouldKillProcessOnPort(currentVersion, healthBody) {
   if (!healthBody || typeof healthBody !== "object") return false;
   if (typeof healthBody.version !== "string" || healthBody.version === "") return true;
-  if (healthBody.app !== "lavish-axi") return false;
+  if (healthBody.app !== "shiny-axi") return false;
   return healthBody.version !== currentVersion;
 }
 
-async function canControlServerOnPort(port, healthBody, processMatchesLavish) {
+async function canControlServerOnPort(port, healthBody, processMatchesShiny) {
   if (!healthBody || typeof healthBody !== "object") return false;
-  if (healthBody.app === "lavish-axi") return true;
+  if (healthBody.app === "shiny-axi") return true;
   if (typeof healthBody.version === "string" && healthBody.version !== "") return false;
-  return processMatchesLavish(port);
+  return processMatchesShiny(port);
 }
 
 async function fetchHealth(baseUrl) {
@@ -636,7 +634,7 @@ function killProcessOnPort(port) {
   }
 }
 
-function processOnPortMatchesLavish(port) {
+function processOnPortMatchesShiny(port) {
   try {
     const pids = spawnSync("lsof", ["-t", `-iTCP:${port}`, "-sTCP:LISTEN"], { encoding: "utf8" });
     if (pids.status !== 0) return false;
@@ -644,7 +642,7 @@ function processOnPortMatchesLavish(port) {
       const pid = Number(line.trim());
       if (!Number.isInteger(pid) || pid <= 0 || pid === process.pid) continue;
       const command = spawnSync("ps", ["-p", String(pid), "-o", "command="], { encoding: "utf8" });
-      if (command.status === 0 && /lavish-axi/.test(command.stdout)) {
+      if (command.status === 0 && /shiny-axi/.test(command.stdout)) {
         return true;
       }
     }
@@ -672,11 +670,11 @@ async function startServer(port) {
 }
 
 // The detached server child must point at a node-executable entry that actually invokes
-// run(). In source layout that's `../bin/lavish-axi.js` (which calls run on import). In the
+// run(). In source layout that's `../bin/shiny-axi.js` (which calls run on import). In the
 // published bundle, only `dist/cli.mjs` ships and it self-invokes via the bundled bin
 // wrapper. Pick whichever exists.
 export function resolveServerEntry() {
-  const binEntry = fileURLToPath(new URL("../bin/lavish-axi.js", import.meta.url));
+  const binEntry = fileURLToPath(new URL("../bin/shiny-axi.js", import.meta.url));
   if (existsSync(binEntry)) return binEntry;
   return fileURLToPath(import.meta.url);
 }
@@ -692,7 +690,7 @@ export function createServerSpawnOptions(logFd = null) {
   return {
     detached: true,
     stdio,
-    env: { ...process.env, LAVISH_AXI_NO_OPEN: "1" },
+    env: { ...process.env, SHINY_AXI_NO_OPEN: "1" },
   };
 }
 
@@ -711,7 +709,7 @@ export async function fetchJson(url, { retries = 0, retryDelayMs = 250 } = {}) {
 
   if (!response) throw serverConnectionError();
   if (!response.ok) {
-    throw new AxiError(`Lavish Editor request failed: ${response.status}`, "SERVER_ERROR");
+    throw new AxiError(`Shiny AXI Editor request failed: ${response.status}`, "SERVER_ERROR");
   }
   try {
     return await response.json();
@@ -732,22 +730,22 @@ async function postJson(url, body) {
     throw serverConnectionError();
   }
   if (!response.ok) {
-    throw new AxiError(`Lavish Editor request failed: ${response.status}`, "SERVER_ERROR");
+    throw new AxiError(`Shiny AXI Editor request failed: ${response.status}`, "SERVER_ERROR");
   }
   return response.json();
 }
 
 function serverConnectionError() {
-  return new AxiError("Lavish Editor server connection failed", "SERVER_ERROR", [
-    "Run `lavish-axi server --verbose` or inspect `~/.lavish-axi/server.log` (`LAVISH_AXI_STATE_DIR/server.log` when set) for server startup or crash diagnostics",
-    "Re-run the last `lavish-axi poll <html-file>` command after the server is healthy",
+  return new AxiError("Shiny AXI Editor server connection failed", "SERVER_ERROR", [
+    "Run `shiny-axi server --verbose` or inspect `~/.shiny-axi/server.log` (`SHINY_AXI_STATE_DIR/server.log` when set) for server startup or crash diagnostics",
+    "Re-run the last `shiny-axi poll <html-file>` command after the server is healthy",
   ]);
 }
 
 function pollResponseInterruptedError() {
-  return new AxiError("Lavish Editor poll response was interrupted", "SERVER_ERROR", [
-    "Run `lavish-axi server --verbose` or inspect `~/.lavish-axi/server.log` (`LAVISH_AXI_STATE_DIR/server.log` when set) for server startup or crash diagnostics",
-    "Re-run the last `lavish-axi poll <html-file>` command after the server is healthy",
+  return new AxiError("Shiny AXI Editor poll response was interrupted", "SERVER_ERROR", [
+    "Run `shiny-axi server --verbose` or inspect `~/.shiny-axi/server.log` (`SHINY_AXI_STATE_DIR/server.log` when set) for server startup or crash diagnostics",
+    "Re-run the last `shiny-axi poll <html-file>` command after the server is healthy",
   ]);
 }
 
@@ -767,19 +765,19 @@ export function getCommandHelp(command) {
   return COMMAND_HELP[command] || null;
 }
 
-const TOP_LEVEL_HELP = `lavish-axi - Lavish Editor AXI
+const TOP_LEVEL_HELP = `shiny-axi - Shiny AXI Editor
 
 Usage:
-  lavish-axi
-  lavish-axi <html-file> [--no-open] [--no-gate]
-  lavish-axi shiny [app-dir] [--url <url>] [--no-open]
-  lavish-axi quarto <file.qmd> [--no-open]
-  lavish-axi poll <path> [--agent-reply "..."]
-  lavish-axi end <path>
-  lavish-axi stop
-  lavish-axi playbook [playbook_id]
-  lavish-axi design
-  lavish-axi setup hooks
+  shiny-axi
+  shiny-axi <html-file> [--no-open] [--no-gate]
+  shiny-axi shiny [app-dir] [--url <url>] [--no-open]
+  shiny-axi quarto <file.qmd> [--no-open]
+  shiny-axi poll <path> [--agent-reply "..."]
+  shiny-axi end <path>
+  shiny-axi stop
+  shiny-axi playbook [playbook_id]
+  shiny-axi design
+  shiny-axi setup hooks
 
 ${DESIGN_SYSTEM_HINT}
 
@@ -788,54 +786,54 @@ Note: poll long-polls indefinitely by default until the user sends feedback, end
 `;
 
 const COMMAND_HELP = {
-  open: `Usage: lavish-axi <html-file> [--no-open] [--no-gate]
+  open: `Usage: shiny-axi <html-file> [--no-open] [--no-gate]
 
-Open or resume a Lavish Editor review session for an HTML artifact. Use --no-open when you need to ensure the server/session exists without opening another browser window. Use --no-gate to skip the open-time layout curtain for this browser open.
+Open or resume a Shiny AXI Editor review session for an HTML artifact. Use --no-open when you need to ensure the server/session exists without opening another browser window. Use --no-gate to skip the open-time layout curtain for this browser open.
 `,
-  shiny: `Usage: lavish-axi shiny [app-dir] [--url <url>] [--no-open]
+  shiny: `Usage: shiny-axi shiny [app-dir] [--url <url>] [--no-open]
 
 Open a Shiny app interactive annotation session. It spawns the R/Shiny process automatically in the background (managed mode), unless --url is provided to proxy an already running Shiny app (attached mode).
 `,
-  quarto: `Usage: lavish-axi quarto <file.qmd> [--no-open]
+  quarto: `Usage: shiny-axi quarto <file.qmd> [--no-open]
 
 Open a Quarto document interactive annotation session. It automatically renders the QMD/RMD/MD file to HTML using 'quarto render' and sets up a session for live-reload.
 `,
-  poll: `Usage: lavish-axi poll <path> [--agent-reply "..."]
+  poll: `Usage: shiny-axi poll <path> [--agent-reply "..."]
 
-This command long-polls indefinitely for queued user prompts and browser-reported layout_warnings, then returns them to the agent. It stays silent while it waits - that is normal, never kill it. Fix layout_warnings before involving the human. Do not pass --timeout-ms during normal agent use; it is for tests and debugging only. If your harness limits how long a foreground command may run, run the poll as a background task and wait for it to finish; if it still gets killed or times out, just re-run it - queued feedback is never lost. Use --agent-reply after applying prior feedback to display your response in Lavish Editor before waiting again.
+This command long-polls indefinitely for queued user prompts and browser-reported layout_warnings, then returns them to the agent. It stays silent while it waits - that is normal, never kill it. Fix layout_warnings before involving the human. Do not pass --timeout-ms during normal agent use; it is for tests and debugging only. If your harness limits how long a foreground command may run, run the poll as a background task and wait for it to finish; if it still gets killed or times out, just re-run it - queued feedback is never lost. Use --agent-reply after applying prior feedback to display your response in Shiny AXI Editor before waiting again.
 `,
-  end: `Usage: lavish-axi end <path>
+  end: `Usage: shiny-axi end <path>
 
-End a Lavish Editor session.
+End a Shiny AXI Editor session.
 `,
-  stop: `Usage: lavish-axi stop [--port <port>]
+  stop: `Usage: shiny-axi stop [--port <port>]
 
-Shut down the background Lavish Editor server. The server also stops itself when no browser or poll has been connected for a while (LAVISH_AXI_IDLE_TIMEOUT_MS, default 30m) and immediately when the last session ends with nothing connected.
+Shut down the background Shiny AXI Editor server. The server also stops itself when no browser or poll has been connected for a while (SHINY_AXI_IDLE_TIMEOUT_MS, default 30m) and immediately when the last session ends with nothing connected.
 `,
-  playbook: `Usage: lavish-axi playbook [playbook_id]
+  playbook: `Usage: shiny-axi playbook [playbook_id]
 
 List focused artifact guidance playbooks, or show one playbook by ID. Known IDs: diagram, table, comparison, plan, code, input, slides.
 
 One artifact often combines several playbooks (for example a plan that includes a comparison and a diagram), so read every playbook relevant to the artifact, not just one, for the best quality.
 
 Examples:
-  lavish-axi playbook
-  lavish-axi playbook diagram
-  lavish-axi playbook input
+  shiny-axi playbook
+  shiny-axi playbook diagram
+  shiny-axi playbook input
 `,
-  design: `Usage: lavish-axi design
+  design: `Usage: shiny-axi design
 
-Show a copy-pasteable CDN snippet for Tailwind CSS browser runtime v4 + DaisyUI v5 + themes, an optional layout safety CSS snippet, plus technical reference for DaisyUI components. Lavish artifacts stay portable HTML. This CDN snippet is the design fallback, not the default: inspect the subject project before falling back, and paste the layout safety CSS only when useful for dense nested grid/flex layouts, badges, wide fonts, or local media. The strict priority order is: (1) if the user asked for a specific look or named design system, follow that; (2) otherwise, match the design system of the project the artifact is about, not necessarily your current working directory. If the artifact previews, proposes, or mocks a specific app's UI, use that app's own design system; (3) only when both come up empty, prefer the Lavish-recommended Tailwind + DaisyUI CDN snippet over hand-writing styles unless explicitly instructed otherwise by the user.
+Show a copy-pasteable CDN snippet for Tailwind CSS browser runtime v4 + DaisyUI v5 + themes, an optional layout safety CSS snippet, plus technical reference for DaisyUI components. Shiny AXI artifacts stay portable HTML. This CDN snippet is the design fallback, not the default: inspect the subject project before falling back, and paste the layout safety CSS only when useful for dense nested grid/flex layouts, badges, wide fonts, or local media. The strict priority order is: (1) if the user asked for a specific look or named design system, follow that; (2) otherwise, match the design system of the project the artifact is about, not necessarily your current working directory. If the artifact previews, proposes, or mocks a specific app's UI, use that app's own design system; (3) only when both come up empty, prefer the Shiny AXI-recommended Tailwind + DaisyUI CDN snippet over hand-writing styles unless explicitly instructed otherwise by the user.
 `,
-  setup: `Usage: lavish-axi setup hooks
+  setup: `Usage: shiny-axi setup hooks
 
-Install or repair agent SessionStart hooks for lavish-axi ambient context in Claude Code, Codex, and OpenCode. Restart your agent session afterward to receive the context.
+Install or repair agent SessionStart hooks for shiny-axi ambient context in Claude Code, Codex, and OpenCode. Restart your agent session afterward to receive the context.
 `,
-  server: `Usage: lavish-axi server [--port 4387] [--verbose]
+  server: `Usage: shiny-axi server [--port 4387] [--verbose]
 
-Run the local Lavish Editor server. Pass --verbose (or set LAVISH_AXI_DEBUG=1) to log session and watcher events to stderr. Detached server output is appended to ~/.lavish-axi/server.log, or LAVISH_AXI_STATE_DIR/server.log when set, for startup and crash diagnostics.
+Run the local Shiny AXI Editor server. Pass --verbose (or set SHINY_AXI_DEBUG=1) to log session and watcher events to stderr. Detached server output is appended to ~/.shiny-axi/server.log, or SHINY_AXI_STATE_DIR/server.log when set, for startup and crash diagnostics.
 
-LAVISH_AXI_HOST sets the bind address (default 127.0.0.1; a wildcard 0.0.0.0 or :: binds every interface). Binding beyond loopback exposes an unauthenticated server that can read and serve arbitrary local files to anything that can reach it, so only do so on a trusted network. LAVISH_AXI_LINK_HOST sets the hostname written into generated session links (default: the bind address, or loopback when bound to a wildcard). LAVISH_AXI_NO_OPEN=1 (or --no-open) suppresses the local browser launch.
+SHINY_AXI_HOST sets the bind address (default 127.0.0.1; a wildcard 0.0.0.0 or :: binds every interface). Binding beyond loopback exposes an unauthenticated server that can read and serve arbitrary local files to anything that can reach it, so only do so on a trusted network. SHINY_AXI_LINK_HOST sets the hostname written into generated session links (default: the bind address, or loopback when bound to a wildcard). SHINY_AXI_NO_OPEN=1 (or --no-open) suppresses the local browser launch.
 `,
 };
 
