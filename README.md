@@ -19,6 +19,52 @@ shiny-axi is an [Agent eXperience Interface (AXI)](https://axi.md) extension des
 
 ---
 
+## Why this matters for the R community
+
+AI coding agents can now draft a substantial amount of R code, but a working Shiny app or Quarto report is more than source text. Its quality lives in the running experience: reactive state, inputs and outputs, plots, tables, browser layout, and the way a report reads after it renders. Those are exactly the details that are hard to express in a chat message such as “the filter feels wrong” or “this chart is too crowded.”
+
+shiny-axi turns that visual review into structured context for an agent. You run the real app or document locally, inspect it in the browser, annotate the exact component or text range, and send the feedback back with DOM context. The agent can then change the R or Quarto source, while you see the live result rather than relying on screenshots or a long back-and-forth description.
+
+For R teams, this means AI can participate in the full build-review-improve loop without replacing the people who understand the data, statistical intent, domain language, or deployment constraints. It is especially useful when:
+
+- a Shiny developer needs to validate reactive behavior and layout after an agent changes UI or server code;
+- an analyst needs to review a rendered Quarto report, narrative, figures, and tables with precise visual feedback;
+- a domain expert can explain what is wrong in the browser without editing R code; or
+- sensitive data and applications should remain in the local R workflow by default.
+
+Shiny AXI is therefore not an “AI writes R for you” tool. It is a local-first collaboration layer that helps R developers, analysts, and domain experts give AI agents the same kind of concrete visual feedback they already use when reviewing an application or report.
+
+---
+
+## Installation
+
+You can install **shiny-axi** via npm (Node 22+ required). The package is distributed as a CLI that runs without a global install:
+
+```sh
+# Execute the CLI directly using npx (no global install needed)
+npx -y shiny-axi <command> [options]
+```
+
+The above works on macOS, Linux, and Windows. If you prefer a permanent global install:
+
+```sh
+npm install -g shiny-axi
+```
+
+> **Note:** The CLI is an ESM‑only package and requires Node 22 or later.
+
+## Background
+
+### Upstream and attribution
+
+shiny-axi is a fork of [lavish-axi](https://github.com/kunchenguid/lavish-axi) by Kun Chen. Its local HTML review server, browser chrome, and annotation SDK were adapted and extended here for R Shiny and Quarto workflows.
+
+The upstream work and its copyright notice are retained under the MIT License; see [LICENSE](LICENSE). Shiny/Quarto process management, proxying, and workflow-specific integrations are maintained by this project.
+
+### Scope
+
+Shiny AXI is an R-first visual review workflow, not a general-purpose replacement for Lavish AXI. For general HTML artifacts outside R workflows, use [Lavish AXI](https://github.com/kunchenguid/lavish-axi). For the source boundary, selective-sync policy, and contribution rules, see [UPSTREAM.md](https://github.com/freestatman/shiny-axi/blob/main/UPSTREAM.md).
+
 ## Quick Start
 
 Install the Agent Skills for the R visual workflows using [`npx skills`](https://github.com/vercel-labs/skills):
@@ -68,17 +114,19 @@ The agent will automatically load the appropriate skill, launch the app in your 
 
 ## CLI Reference
 
-| Command                       | Description                                                         |
-| ----------------------------- | ------------------------------------------------------------------- |
-| `shiny-axi`                   | Show current sessions and usage guidance.                           |
-| `shiny-axi <html-file>`       | Open a static HTML visual review session.                           |
-| `shiny-axi shiny [app-dir]`   | Open or resume an R Shiny application review session.               |
-| `shiny-axi quarto <file.qmd>` | Open or resume a Quarto document / Quarto Shiny review session.     |
-| `shiny-axi poll <path>`       | Long-poll until the user sends feedback or reports layout warnings. |
-| `shiny-axi end <path>`        | End an active review session.                                       |
-| `shiny-axi stop`              | Shut down the background server.                                    |
-| `shiny-axi design`            | Show the copy-pasteable Tailwind/DaisyUI CDN fallback.              |
-| `shiny-axi setup hooks`       | Install optional SessionStart hooks for Claude Code and OpenCode.   |
+| Command                        | Description                                                         |
+| ------------------------------ | ------------------------------------------------------------------- |
+| `shiny-axi`                    | Show current sessions and usage guidance.                           |
+| `shiny-axi <html-file>`        | Compatibility: open a static HTML review session.                   |
+| `shiny-axi shiny [app-dir]`    | Open or resume an R Shiny application review session.               |
+| `shiny-axi quarto <file.qmd>`  | Open or resume a Quarto document / Quarto Shiny review session.     |
+| `shiny-axi poll <path>`        | Long-poll until the user sends feedback or reports layout warnings. |
+| `shiny-axi end <path>`         | End an active review session.                                       |
+| `shiny-axi stop`               | Shut down the background server.                                    |
+| `shiny-axi design`             | Show the copy-pasteable Tailwind/DaisyUI CDN fallback.              |
+| `shiny-axi export <file.html>` | Write a portable HTML export with local assets inlined.             |
+| `shiny-axi share <file.html>`  | Publish a self-contained artifact to the optional ht-ml.app host.   |
+| `shiny-axi setup hooks`        | Install optional SessionStart hooks for Claude Code and OpenCode.   |
 
 ---
 
@@ -93,3 +141,11 @@ pnpm run lint           # Run ESLint
 pnpm run format:check   # Prettier check
 pnpm run typecheck      # tsc typecheck js files
 ```
+
+## Privacy and sharing
+
+shiny-axi runs locally and does not include product telemetry. `shiny-axi share` is optional: it uploads the selected artifact to the third-party [ht-ml.app](https://ht-ml.app) service. Shared pages are public by default; use `--password` for password protection and never publish secrets.
+
+## Contributing
+
+Please read [CONTRIBUTING.md](https://github.com/freestatman/shiny-axi/blob/main/CONTRIBUTING.md). Contributions follow the AXI community's no-mistakes workflow and require conventional commit messages so release-please can generate release notes.

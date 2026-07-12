@@ -2,7 +2,7 @@
   "name": "shiny-axi",
   "version": "0.1.31",
   "packageManager": "pnpm@11.1.1",
-  "description": "R Shiny and Quarto review and interaction via lavish browser.",
+  "description": "Collaborative visual review for R Shiny applications and Quarto documents.",
   "type": "module",
   "bin": {
     "shiny-axi": "dist/cli.mjs"
@@ -12,9 +12,10 @@
     "skills/shiny-axi",
     "skills/shiny",
     "skills/quarto",
-    "lavish-editor-marketing/renders/lavish-editor-marketing.gif",
     "LICENSE",
-    "README.md"
+    "README.md",
+    "CONTRIBUTING.md",
+    "UPSTREAM.md"
   ],
   "scripts": {
     "build": "node scripts/build.js",
@@ -30,7 +31,7 @@
   },
   "dependencies": {
     "@tailwindcss/browser": "4.2.4",
-    "axi-sdk-js": "^0.1.7",
+    "axi-sdk-js": "^0.1.8",
     "chokidar": "^4.0.3",
     "daisyui": "^5.5.19",
     "express": "^5.2.1",
@@ -53,7 +54,8 @@
     "axi",
     "agent",
     "cli",
-    "html",
+    "shiny",
+    "quarto",
     "review",
     "collaboration"
   ],

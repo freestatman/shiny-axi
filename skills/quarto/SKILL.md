@@ -16,7 +16,12 @@ Quarto AXI helps agents interactively review and iterate on Quarto (`.qmd`) docu
 You do not need shiny-axi installed globally - invoke it with `npx -y shiny-axi quarto <file.qmd>`.
 If shiny-axi output shows a follow-up command starting with `shiny-axi`, run it as `npx -y shiny-axi ...` instead.
 
-**Important**: Do NOT use the regular visual review skill for Quarto documents. Always use `shiny-axi quarto`, never `shiny-axi <file.html>`. The static visual review skill creates static HTML artifacts; `quarto` automatically renders your `.qmd` source, manages the rendered HTML, watches for source changes, and handles auto-re-rendering.
+**Important**: Do NOT use the regular visual review skill for Quarto documents. Always use `shiny-axi quarto`, never `shiny-axi <file.html>`. The static visual review skill creates static HTML artifacts; `quarto` manages the source, preview, and source-change reloads for the running document.
+
+### Static documents vs Quarto Shiny
+
+- **Static document**: The default workflow runs `quarto render` and serves the generated HTML.
+- **Quarto Shiny document**: When YAML frontmatter contains `server: shiny` (or `server: { type: shiny }`), the workflow runs `quarto serve` and proxies the live app instead. Save source changes normally; Shiny AXI restarts that local serve process before refreshing the preview.
 
 ## When to use
 
@@ -30,14 +35,18 @@ Use this skill when:
 
 1. **Verify Quarto environment**: Confirm Quarto is installed (`quarto --version`).
 2. **Launch Quarto session**: Run `npx -y shiny-axi quarto <file.qmd>`.
-3. **Poll for annotations**: Run `npx -y shiny-axi poll <file.qmd>`. The poll stays silent and waits for user annotations - leave it running, never kill it.
-4. **Receive feedback**: When the user clicks "Send to Agent", the poll returns:
+3. **Poll for feedback**: Run `npx -y shiny-axi poll <file.qmd>`. It stays silent while waiting for annotations or browser-reported `layout_warnings` - leave it running. If the harness interrupts or times out the poll, re-run it safely; queued feedback is retained.
+4. **Receive feedback**: When the user acts or the browser finds a layout issue, the poll can return:
    - `prompts`: User annotations with element selectors, tags, and comments. For text annotations, it includes selected text ranges and boundary anchors.
    - `dom_snapshot`: A snapshot of the rendered document's DOM tree at the time of annotation.
-5. **Apply code modifications**: Locate the corresponding sections or code chunks in the `.qmd` file and edit them.
-6. **Auto re-render**: Saving changes to the `.qmd` file (or other files in the same directory) will automatically trigger `quarto render` and reload the document in the user's browser.
-7. **Reply & Wait**: Run `npx -y shiny-axi poll <file.qmd> --agent-reply "Applied the changes!"` to show your message in the browser and wait for further annotations.
-8. **End session**: Run `npx -y shiny-axi end <file.qmd>` when the review session is complete.
+   - `layout_warnings`: Browser-detected overflow, clipping, or overlap findings.
+   - `next_step`: The authoritative instruction for the returned feedback batch.
+5. **Handle layout warnings first**: Follow `next_step`. Fix and re-check fresh error-severity `layout_warnings` before asking the user for more review. If every warning is persistent or low-severity, it is acceptable to continue with a short note rather than loop indefinitely.
+6. **Apply code modifications**: Locate the corresponding sections or code chunks in the `.qmd` file and edit them.
+7. **Auto-update preview**: Saving changes to the `.qmd` file (or other files in the same directory) refreshes the browser. Static documents are rendered again with `quarto render`; Quarto Shiny documents restart their local `quarto serve` process.
+8. **Reply & Wait**: Run `npx -y shiny-axi poll <file.qmd> --agent-reply "Applied the changes!"` to show your message in the browser and wait for further annotations.
+9. **Respect session end**: If poll reports the user ended the session, stop polling and do not reopen it. Use `--reopen` only when the user requests another review or something important needs fresh visual confirmation.
+10. **End session**: Run `npx -y shiny-axi end <file.qmd>` when the review session is complete.
 
 ## Mapping DOM Elements to Quarto Source
 

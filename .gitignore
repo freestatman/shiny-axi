@@ -5,6 +5,10 @@ coverage/
 .lavish-axi/
 .DS_Store
 *.log
+.pnpm-store/
+.no-mistakes/
+.agents/
+examples/example-quarto/report.html
 
 /demo-output
 /.agents/skills/lavish-quarto

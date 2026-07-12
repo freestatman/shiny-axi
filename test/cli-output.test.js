@@ -12,18 +12,25 @@ import { AxiError } from "axi-sdk-js";
 
 import {
   collapseHomeDirectory,
+  computeCopilotCliHookUpdate,
+  createCopilotCliAmbientContextScript,
+  createCopilotCliSessionStartHook,
   createDesignOutput,
+  createExportOutput,
   createHomeOutput,
   createOpenOutput,
   createPollOutput,
   createPlaybookOutput,
   createServerSpawnOptions,
+  createShareOutput,
+  createUserEndedOpenOutput,
   fetchJson,
   getCommandHelp,
   normalizeArgv,
   pollInterruptedText,
   pollWaitBannerText,
   pollWaitTickText,
+  resolveCopilotHookDir,
   resolveHookHomeDir,
   resolveServerEntry,
   shutdownServerOnPort,
@@ -33,7 +40,6 @@ import {
   shouldRestartServer,
   startPollWaitReporter,
   stopCommand,
-  telemetryCommandName,
   shinyCommand,
   quartoCommand,
   VERSION,
@@ -41,25 +47,34 @@ import {
 import { serve } from "../src/server.js";
 import { detectQuarto } from "../src/quarto-process.js";
 
+function setupHooksEnv(homeDir, stateDir) {
+  // eslint-disable-next-line no-unused-vars
+  const { COPILOT_HOME, ...env } = process.env;
+  return { ...env, HOME: homeDir, SHINY_AXI_STATE_DIR: stateDir };
+}
+
 test("CLI version tracks package.json so release-please bumps reach the published binary", async () => {
   const packageJson = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
   assert.equal(VERSION, packageJson.version);
 });
 
-test("home output teaches agents when and how to use Shiny AXI Editor", () => {
+test("home output teaches agents when and how to use Shiny AXI", () => {
   const output = createHomeOutput({ bin: `${os.homedir()}/.local/bin/shiny-axi`, sessions: [] });
 
   assert.equal(output.bin, "~/.local/bin/shiny-axi");
   assert.match(output.description, /Shiny AXI/);
-  assert.match(output.description, /R Shiny/);
+  assert.match(output.description, /Shiny app or Quarto report/);
   assert.match(output.description, /consider using Shiny AXI/);
   assert.match(output.description, /First launch the session/);
   assert.deepEqual(output.sessions, []);
   assert.equal("use_cases" in output, false);
   assert.equal("example_use_cases" in output, false);
   assert.equal("artifact_guidance" in output, false);
-  assert.ok(output.visual_guidance.length <= 4);
+  assert.ok(output.visual_guidance.length <= 5);
   assert.ok(output.visual_guidance.some((item) => item.includes("visual hierarchy")));
+  assert.ok(
+    output.visual_guidance.some((item) => /screenshot/i.test(item) && /embed/i.test(item) && /prose/i.test(item)),
+  );
   assert.ok(output.visual_guidance.some((item) => item.includes("sections, cards, tables")));
   assert.ok(output.visual_guidance.some((item) => item.includes("horizontal overflow")));
   assert.ok(output.visual_guidance.some((item) => item.includes("minmax(0, 1fr)")));
@@ -74,8 +89,16 @@ test("home output teaches agents when and how to use Shiny AXI Editor", () => {
   assert.ok(output.help.some((item) => item.includes("shiny-axi <html-file>")));
   assert.ok(output.help.some((item) => item.includes("`.shiny-axi/`")));
   assert.ok(output.help.some((item) => item.includes("shiny-axi playbook <playbook_id>")));
+  assert.ok(
+    output.help.some((item) => /R Shiny application|Quarto document/.test(item)),
+    "limits default discovery to the R Shiny and Quarto workflows",
+  );
+  assert.ok(
+    !output.help.some((item) => item.includes("HTML explainer") || item.includes("interactive prototype")),
+    "does not position Shiny AXI as a generic HTML artifact tool",
+  );
   assert.ok(output.help.some((item) => item.includes("combines several playbooks")));
-  assert.ok(output.help.some((item) => item.includes("read every playbook relevant")));
+  assert.ok(output.help.some((item) => item.includes("MUST open each matching playbook")));
   assert.ok(output.help.some((item) => item.includes("reference other filesystem assets")));
   assert.ok(output.help.some((item) => item.includes("same directory as the HTML file")));
   assert.ok(output.help.some((item) => item.includes("does not auto-inject")));
@@ -98,7 +121,7 @@ test("home output teaches agents when and how to use Shiny AXI Editor", () => {
   assert.ok(!output.help.some((item) => /inspect the current project/i.test(item)));
   assert.ok(!output.help.some((item) => item.includes('<meta name="lavish-design" content="off">')));
   assert.ok(!output.help.some((item) => item.includes("Known IDs")));
-  assert.ok(output.help.some((item) => item.includes("technical plan")));
+  assert.ok(output.help.some((item) => item.includes("R Shiny applications")));
 });
 
 test("home output warns agents that poll is a long poll they must not kill", () => {
@@ -159,6 +182,12 @@ test("top-level help renders static home output without dynamic sessions", async
 test("design output prints copy-pasteable CDN URLs so agents can opt in to DaisyUI", () => {
   const output = createDesignOutput();
 
+  assert.match(output.playbook_router.instruction, /MUST open each matching playbook before writing HTML/);
+  assert.equal(output.playbook_router.playbooks.length, 7);
+  assert.equal(
+    output.playbook_router.playbooks.find((playbook) => playbook.id === "diagram")?.use_when,
+    "Map relationships, flows, state, and architecture",
+  );
   assert.match(output.design.summary, /does not auto-inject/);
   assert.match(output.design.summary, /Tailwind CSS browser runtime v4/);
   assert.match(output.design.summary, /DaisyUI v5/);
@@ -195,6 +224,16 @@ test("design output prints copy-pasteable CDN URLs so agents can opt in to Daisy
     /^https:\/\/cdn\.jsdelivr\.net\/npm\/@tailwindcss\/browser@\d+\.\d+\.\d+\/dist\/index\.global\.js$/,
   );
   assert.match(output.design.other_design_systems, /different design system|other design system/i);
+  assert.match(output.diagram_tooling.use_when, /flows \/ architecture \/ state \/ sequence diagrams/);
+  assert.match(output.diagram_tooling.use_when, /hand-built div\/flexbox boxes/);
+  assert.match(output.diagram_tooling.mermaid_cdn_snippet, /cdn\.jsdelivr\.net\/npm\/mermaid@\d+\.\d+\.\d+/);
+  assert.match(output.diagram_tooling.mermaid_cdn_snippet, /mermaid\.initialize/);
+  assert.match(output.diagram_tooling.mermaid_cdn_snippet, /startOnLoad: true/);
+  assert.match(
+    output.diagram_tooling.cdn_urls.mermaid,
+    /^https:\/\/cdn\.jsdelivr\.net\/npm\/mermaid@\d+\.\d+\.\d+\/dist\/mermaid\.esm\.min\.mjs$/,
+  );
+  assert.equal(output.diagram_tooling.versions.mermaid, "11.15.0");
   assert.equal("opt_out" in output.design, false);
   assert.equal("rule" in output.design, false);
   assert.equal(output.design.latest_docs, "https://daisyui.com/components/");
@@ -239,7 +278,16 @@ test("playbook index output lists known playbooks with concise descriptions", ()
   assert.ok(output.playbooks.every((playbook) => playbook.use_when.length > 20));
   assert.ok(output.help.some((item) => item.includes("shiny-axi playbook <playbook_id>")));
   assert.ok(output.help.some((item) => item.includes("combines several playbooks")));
-  assert.ok(output.help.some((item) => item.includes("read every playbook relevant")));
+  assert.ok(output.help.some((item) => item.includes("MUST open each matching playbook")));
+});
+
+test("diagram playbook names the hand-built flow anti-pattern", () => {
+  const output = createPlaybookOutput(["diagram"]);
+
+  assert.ok(output.playbook.choose.some((item) => item.includes("Mermaid")));
+  assert.ok(output.playbook.pitfalls.some((item) => /hand-build boxes-and-arrows/i.test(item)));
+  assert.ok(output.playbook.pitfalls.some((item) => /div\/flexbox/i.test(item)));
+  assert.ok(output.playbook.pitfalls.some((item) => /does not auto-route edges/i.test(item)));
 });
 
 test("playbook detail output returns focused Lavish-native guidance", () => {
@@ -256,11 +304,11 @@ test("playbook detail output returns focused Lavish-native guidance", () => {
   assert.ok(output.playbook.design_rules.some((item) => item.includes("data-lavish-action")));
   assert.ok(output.playbook.design_rules.some((item) => item.includes("data-lavish-question")));
   assert.ok(output.playbook.design_rules.some((item) => item.includes("queueKey")));
-  assert.ok(output.playbook.lavish_notes.some((item) => item.includes("window.lavish.queuePrompt")));
-  assert.ok(output.playbook.lavish_notes.some((item) => item.includes("onsubmit")));
+  assert.ok(output.playbook.shiny_axi_notes.some((item) => item.includes("window.lavish.queuePrompt")));
+  assert.ok(output.playbook.shiny_axi_notes.some((item) => item.includes("onsubmit")));
   assert.ok(output.playbook.pitfalls.some((item) => item.includes("unclear")));
   assert.ok(output.playbook.pitfalls.some((item) => item.includes("radio change")));
-  assert.ok(output.playbook.lavish_notes.some((item) => item.includes("Lavish")));
+  assert.ok(output.playbook.shiny_axi_notes.some((item) => item.includes("Shiny AXI")));
 });
 
 test("code playbook detail output requires verified @pierre/diffs rendering", () => {
@@ -332,6 +380,336 @@ test("open output keeps the user URL in session data and next_step focused on po
   assert.match(output.next_step, /queued feedback is never lost/);
   assert.match(output.next_step, /Do not pass --timeout-ms/);
   assert.doesNotMatch(output.next_step, /above 10 minutes/);
+  assert.match(output.next_step, /If the user ends the session, stop polling and do not reopen it/);
+  assert.match(output.next_step, /--reopen/);
+});
+
+test("a user-ended open refuses with a status agents can branch on, not a URL to open", () => {
+  const output = createUserEndedOpenOutput({
+    file: "/tmp/artifact.html",
+    url: "http://localhost:4387/session/abc123",
+  });
+
+  assert.equal(output.session.file, "/tmp/artifact.html");
+  assert.equal(output.session.status, "user-ended");
+  assert.match(output.next_step, /user explicitly ended this (Lavish|Shiny AXI) Editor session from the browser/);
+  assert.match(output.next_step, /did not reopen it/);
+  assert.match(output.next_step, /Do not reopen unless the user asks for further review/);
+  assert.match(output.next_step, /shiny-axi \/tmp\/artifact\.html --reopen/);
+});
+
+test("export output reports the written file and reassures it needs no server", () => {
+  const output = createExportOutput({
+    source: "/tmp/report.html",
+    output: "/tmp/report.export.html",
+    html: "<html></html>",
+    warnings: [],
+  });
+
+  assert.equal(output.export.source, "/tmp/report.html");
+  assert.equal(output.export.output, "/tmp/report.export.html");
+  assert.equal(output.export.unresolved_local_assets, 0);
+  assert.equal(output.export.bytes, Buffer.byteLength("<html></html>"));
+  assert.match(output.next_step, /no (Lavish|Shiny AXI) server/);
+  assert.match(output.next_step, /remote CDN\/font references are left as links/);
+});
+
+test("export output surfaces local assets that could not be inlined", () => {
+  const output = createExportOutput({
+    source: "/tmp/report.html",
+    output: "/tmp/report.export.html",
+    html: "<html></html>",
+    warnings: [{ kind: "load-failed", ref: "./missing.png" }],
+  });
+
+  assert.deepEqual(output.unresolved_local_assets, [{ kind: "load-failed", ref: "./missing.png" }]);
+  assert.match(output.next_step, /LOCAL assets could not be inlined/);
+});
+
+test("export output counts active srcdoc refs as unresolved assets", () => {
+  const output = createExportOutput({
+    source: "/tmp/report.html",
+    output: "/tmp/report.export.html",
+    html: "<html></html>",
+    warnings: [{ kind: "srcdoc-resource", ref: "local.png" }],
+  });
+
+  assert.equal(output.export.unresolved_local_assets, 1);
+  assert.deepEqual(output.unresolved_local_assets, [{ kind: "srcdoc-resource", ref: "local.png" }]);
+  assert.equal("notices" in output, false);
+});
+
+test("export output separates unresolved assets from notices", () => {
+  const output = createExportOutput({
+    source: "/tmp/report.html",
+    output: "/tmp/report.export.html",
+    html: "<html></html>",
+    warnings: [
+      { kind: "load-failed", ref: "./missing.png", reason: "ENOENT" },
+      { kind: "file-url-redacted", ref: "file:///Users/kun/secret.png" },
+      { kind: "csp-meta", ref: "script-src 'self'" },
+    ],
+  });
+
+  assert.equal(output.export.unresolved_local_assets, 1);
+  assert.equal(output.export.notices, 2);
+  assert.deepEqual(output.unresolved_local_assets, [{ kind: "load-failed", ref: "./missing.png", reason: "ENOENT" }]);
+  assert.deepEqual(output.notices, [
+    { kind: "file-url-redacted", ref: "file:///Users/kun/secret.png" },
+    { kind: "csp-meta", ref: "script-src 'self'" },
+  ]);
+  assert.equal(output.warnings.length, 3);
+});
+
+test("export command writes a portable HTML file next to the artifact", async () => {
+  const dir = await mkdtemp(`${os.tmpdir()}/shiny-axi-export-test-`);
+  const artifact = `${dir}/report.html`;
+  await writeFile(`${dir}/theme.css`, ".btn{color:rebeccapurple}", "utf8");
+  await writeFile(
+    artifact,
+    '<!doctype html><html><head><link rel="stylesheet" href="theme.css">' +
+      '<link rel="stylesheet" href="https://cdn.example/app.css"></head><body><h1>Hi</h1></body></html>',
+    "utf8",
+  );
+  try {
+    const result = spawnSync(
+      process.execPath,
+      [fileURLToPath(new URL("../bin/shiny-axi.js", import.meta.url)), "export", artifact],
+      {
+        cwd: fileURLToPath(new URL("..", import.meta.url)),
+        env: { ...process.env, SHINY_AXI_STATE_DIR: dir, SHINY_AXI_TELEMETRY: "0" },
+        encoding: "utf8",
+      },
+    );
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /report\.export\.html/);
+    const exported = await readFile(`${dir}/report.export.html`, "utf8");
+    // local stylesheet inlined; remote stylesheet left as a link; SDK stripped
+    assert.match(exported, /<style>\.btn\{color:rebeccapurple\}<\/style>/);
+    assert.match(exported, /<link rel="stylesheet" href="https:\/\/cdn\.example\/app\.css">/);
+    assert.doesNotMatch(exported, /sdk\.js/);
+  } finally {
+    await rm(dir, { force: true, recursive: true });
+  }
+});
+
+test("export command treats --out value as an option operand, not the source file", async () => {
+  const dir = await mkdtemp(`${os.tmpdir()}/shiny-axi-export-test-`);
+  const artifact = `${dir}/report.html`;
+  const output = `${dir}/custom.html`;
+  await writeFile(artifact, "<!doctype html><html><body><h1>Hi</h1></body></html>", "utf8");
+  try {
+    const result = spawnSync(
+      process.execPath,
+      [fileURLToPath(new URL("../bin/shiny-axi.js", import.meta.url)), "export", "--out", output, artifact],
+      {
+        cwd: fileURLToPath(new URL("..", import.meta.url)),
+        env: { ...process.env, SHINY_AXI_STATE_DIR: dir, SHINY_AXI_TELEMETRY: "0" },
+        encoding: "utf8",
+      },
+    );
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /custom\.html/);
+    assert.match(await readFile(output, "utf8"), /<h1>Hi<\/h1>/);
+  } finally {
+    await rm(dir, { force: true, recursive: true });
+  }
+});
+
+test("share output reports the public url and the secret update key", () => {
+  const output = createShareOutput({
+    source: "/tmp/report.html",
+    site: { url: "https://x.ht-ml.app/", site_id: "x", update_key: "uk_secret", status: "active" },
+    warnings: [],
+  });
+
+  assert.equal(output.share.source, "/tmp/report.html");
+  assert.equal(output.share.url, "https://x.ht-ml.app/");
+  assert.equal(output.share.update_key, "uk_secret");
+  assert.equal(output.share.public, true);
+  assert.equal(output.share.visibility, "public");
+  assert.match(output.next_step, /PUBLIC/);
+  assert.match(output.next_step, /update_key/);
+  assert.match(output.next_step, /x\.ht-ml\.app/);
+  assert.match(
+    output.next_step,
+    /ht-ml\.app \(https:\/\/ht-ml\.app\), a third-party host not part of (Lavish|Shiny AXI)/,
+  );
+});
+
+test("password-protected share output tells viewers they also need the password", () => {
+  const output = createShareOutput({
+    source: "/tmp/report.html",
+    site: { url: "https://x.ht-ml.app/", site_id: "x", update_key: "uk_secret", status: "active" },
+    warnings: [],
+    passwordProtected: true,
+  });
+
+  assert.equal(output.share.password_protected, true);
+  assert.equal(output.share.public, false);
+  assert.equal(output.share.visibility, "private");
+  assert.match(output.next_step, /PASSWORD-PROTECTED/);
+  assert.match(output.next_step, /viewers also need the password/);
+  assert.match(
+    output.next_step,
+    /ht-ml\.app \(https:\/\/ht-ml\.app\), a third-party host not part of (Lavish|Shiny AXI)/,
+  );
+  assert.doesNotMatch(output.next_step, /anyone with the link can view/);
+});
+
+test("share output surfaces local assets that could not be inlined", () => {
+  const output = createShareOutput({
+    source: "/tmp/report.html",
+    site: { url: "https://x.ht-ml.app/", site_id: "x", update_key: "uk_secret", status: "active" },
+    warnings: [{ kind: "load-failed", ref: "./missing.png" }],
+  });
+
+  assert.equal(output.share.unresolved_local_assets, 1);
+  assert.deepEqual(output.unresolved_local_assets, [{ kind: "load-failed", ref: "./missing.png" }]);
+  assert.match(output.next_step, /LOCAL assets could not be inlined/);
+  assert.match(
+    output.next_step,
+    /ht-ml\.app \(https:\/\/ht-ml\.app\), a third-party host not part of (Lavish|Shiny AXI)/,
+  );
+  assert.doesNotMatch(output.next_step, /share this URL/);
+});
+
+test("share output separates unresolved assets from notices", () => {
+  const output = createShareOutput({
+    source: "/tmp/report.html",
+    site: { url: "https://x.ht-ml.app/", site_id: "x", update_key: "uk_secret", status: "active" },
+    warnings: [
+      { kind: "module-external", ref: "./main.js" },
+      { kind: "file-url-redacted", ref: "file:///Users/kun/secret.png" },
+      { kind: "csp-meta", ref: "script-src 'self'" },
+    ],
+  });
+
+  assert.equal(output.share.unresolved_local_assets, 1);
+  assert.equal(output.share.notices, 2);
+  assert.deepEqual(output.unresolved_local_assets, [{ kind: "module-external", ref: "./main.js" }]);
+  assert.deepEqual(output.notices, [
+    { kind: "file-url-redacted", ref: "file:///Users/kun/secret.png" },
+    { kind: "csp-meta", ref: "script-src 'self'" },
+  ]);
+  assert.equal(output.warnings.length, 3);
+  assert.match(output.next_step, /Export notices are available in notices/);
+});
+
+test("password-protected share output with unresolved assets still mentions the password", () => {
+  const output = createShareOutput({
+    source: "/tmp/report.html",
+    site: { url: "https://x.ht-ml.app/", site_id: "x", update_key: "uk_secret", status: "active" },
+    warnings: [{ kind: "load-failed", ref: "./missing.png" }],
+    passwordProtected: true,
+  });
+
+  assert.equal(output.share.public, false);
+  assert.equal(output.share.visibility, "private");
+  assert.match(output.next_step, /PASSWORD-PROTECTED/);
+  assert.match(output.next_step, /viewers also need the password/);
+  assert.match(
+    output.next_step,
+    /ht-ml\.app \(https:\/\/ht-ml\.app\), a third-party host not part of (Lavish|Shiny AXI)/,
+  );
+  assert.doesNotMatch(output.next_step, /anyone with the link can view/);
+});
+
+test("share command publishes the artifact to ht-ml.app and returns the public url", async () => {
+  const dir = await mkdtemp(`${os.tmpdir()}/shiny-axi-share-test-`);
+  const artifact = `${dir}/report.html`;
+  await writeFile(`${dir}/theme.css`, ".btn{color:teal}", "utf8");
+  await writeFile(
+    artifact,
+    '<!doctype html><html><head><link rel="stylesheet" href="theme.css"></head><body><h1>Hi</h1></body></html>',
+    "utf8",
+  );
+
+  const requests = [];
+  const htmlApp = await startFakeHtmlApp(requests);
+  try {
+    // Use async spawn (not spawnSync): the child publishes to the fake ht-ml.app server hosted
+    // on this process's event loop, which spawnSync would block, deadlocking the request.
+    const child = spawn(
+      process.execPath,
+      [fileURLToPath(new URL("../bin/shiny-axi.js", import.meta.url)), "share", "--password", "pw", artifact],
+      {
+        cwd: fileURLToPath(new URL("..", import.meta.url)),
+        env: {
+          ...process.env,
+          SHINY_AXI_STATE_DIR: dir,
+          SHINY_AXI_TELEMETRY: "0",
+          SHINY_AXI_HTML_APP_API_URL: `http://127.0.0.1:${htmlApp.port}`,
+        },
+      },
+    );
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk.toString();
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk.toString();
+    });
+    const code = await new Promise((resolve) => child.on("close", resolve));
+
+    assert.equal(code, 0, stderr);
+    assert.match(stdout, /abc123\.ht-ml\.app/);
+    assert.match(stdout, /PASSWORD-PROTECTED/);
+    assert.match(stdout, /viewers also need the password/);
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0].url, "/v1/sites");
+    assert.match(requests[0].body.html_content, /<style>\.btn\{color:teal\}<\/style>/);
+    assert.equal(requests[0].body.password, "pw");
+  } finally {
+    await htmlApp.close();
+    await rm(dir, { force: true, recursive: true });
+  }
+});
+
+test("share command treats a whitespace-only password as public", async () => {
+  const dir = await mkdtemp(`${os.tmpdir()}/shiny-axi-share-test-`);
+  const artifact = `${dir}/report.html`;
+  await writeFile(artifact, "<!doctype html><html><body><h1>Hi</h1></body></html>", "utf8");
+
+  const requests = [];
+  const htmlApp = await startFakeHtmlApp(requests);
+  try {
+    const child = spawn(
+      process.execPath,
+      [fileURLToPath(new URL("../bin/shiny-axi.js", import.meta.url)), "share", "--password", "   ", artifact],
+      {
+        cwd: fileURLToPath(new URL("..", import.meta.url)),
+        env: {
+          ...process.env,
+          SHINY_AXI_STATE_DIR: dir,
+          SHINY_AXI_TELEMETRY: "0",
+          SHINY_AXI_HTML_APP_API_URL: `http://127.0.0.1:${htmlApp.port}`,
+        },
+      },
+    );
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk.toString();
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk.toString();
+    });
+    const code = await new Promise((resolve) => child.on("close", resolve));
+
+    assert.equal(code, 0, stderr);
+    assert.match(stdout, /PUBLIC/);
+    assert.match(stdout, /anyone with the link can view/);
+    assert.doesNotMatch(stdout, /PASSWORD-PROTECTED/);
+    assert.equal(requests.length, 1);
+    assert.equal("password" in requests[0].body, false);
+  } finally {
+    await htmlApp.close();
+    await rm(dir, { force: true, recursive: true });
+  }
 });
 
 test("poll help warns agents to leave the long poll running", () => {
@@ -345,6 +723,23 @@ test("poll help warns agents to leave the long poll running", () => {
   assert.match(help, /Do not pass --timeout-ms/);
   assert.match(help, /tests and debugging only/);
   assert.doesNotMatch(help, /above 10 minutes/);
+});
+
+test("share help distinguishes public default from password-protected shares", () => {
+  const help = getCommandHelp("share");
+  const home = createHomeOutput({ bin: "shiny-axi", sessions: [] });
+  const homeShareHelp = home.help.find((item) => item.includes("shiny-axi share <html-file>"));
+
+  assert.match(help, /PUBLIC by default/);
+  assert.match(help, /Pass --password to publish a PRIVATE password-protected page/);
+  assert.match(help, /viewers must supply the password to view/);
+  assert.match(help, /not blocked by CSP on ht-ml\.app/);
+  assert.match(help, /load over the viewer's network/);
+  assert.doesNotMatch(help, /EVERYTHING PUBLISHED IS PUBLIC/);
+  assert.doesNotMatch(help, /load fine/);
+  assert.match(homeShareHelp, /PUBLIC by default/);
+  assert.match(homeShareHelp, /Pass --password to publish a PRIVATE password-protected page/);
+  assert.doesNotMatch(homeShareHelp, /Everything published is public/);
 });
 
 test("feedback next step tells agents to keep polling without timeout flag", () => {
@@ -387,6 +782,189 @@ test("layout warning feedback tells agents to fix layout before involving the hu
   assert.match(output.next_step, /1 layout warning detected/);
   assert.match(output.next_step, /fix horizontal overflow/);
   assert.match(output.next_step, /before involving the human/);
+  assert.doesNotMatch(output.next_step, /reload or re-open/);
+});
+
+test("a poll reporting the session ended by the user tells the agent to stop and not reopen", () => {
+  const output = createPollOutput({
+    file: "/tmp/report.html",
+    response: { status: "ended", ended_by: "user" },
+  });
+
+  assert.equal(output.session.status, "ended");
+  assert.equal(output.session.ended_by, "user");
+  assert.match(output.next_step, /user ended this Shiny AXI session/);
+  assert.match(output.next_step, /Stop polling/);
+  assert.match(output.next_step, /do not run `shiny-axi \/tmp\/report\.html` to reopen it/);
+  assert.match(output.next_step, /deliver any remaining updates directly in this conversation/i);
+  assert.match(output.next_step, /shiny-axi \/tmp\/report\.html --reopen/);
+});
+
+test("a poll reporting an agent-ended session allows a plain reopen if still needed", () => {
+  const output = createPollOutput({
+    file: "/tmp/report.html",
+    response: { status: "ended", ended_by: "agent" },
+  });
+
+  assert.equal(output.session.ended_by, "agent");
+  assert.match(output.next_step, /Stop polling/);
+  assert.match(output.next_step, /shiny-axi \/tmp\/report\.html`\s+to open a fresh session/);
+  assert.doesNotMatch(output.next_step, /--reopen/);
+});
+
+test("the final feedback batch before a user end flags session_ended and skips the reopen instruction", () => {
+  const output = createPollOutput({
+    file: "/tmp/report.html",
+    response: {
+      status: "feedback",
+      dom_snapshot: "",
+      prompts: [{ uid: "", prompt: "Parting feedback", selector: "", tag: "message", text: "bye" }],
+      session_ended: true,
+      ended_by: "user",
+    },
+  });
+
+  assert.equal(output.session.session_ended, true);
+  assert.equal(output.session.ended_by, "user");
+  assert.match(output.next_step, /last feedback before the user ended the session/);
+  assert.match(output.next_step, /Stop polling \/tmp\/report\.html and do not reopen it/);
+  assert.match(output.next_step, /shiny-axi \/tmp\/report\.html --reopen/);
+  assert.doesNotMatch(output.next_step, /reload or re-open/);
+});
+
+test("the final feedback batch before an agent end preserves ended_by and allows plain reopen", () => {
+  const output = createPollOutput({
+    file: "/tmp/report.html",
+    response: {
+      status: "feedback",
+      dom_snapshot: "",
+      prompts: [{ uid: "", prompt: "Parting feedback", selector: "", tag: "message", text: "bye" }],
+      session_ended: true,
+      ended_by: "agent",
+    },
+  });
+
+  assert.equal(output.session.session_ended, true);
+  assert.equal(output.session.ended_by, "agent");
+  assert.match(output.next_step, /last feedback before the Shiny AXI session ended/);
+  assert.match(output.next_step, /shiny-axi \/tmp\/report\.html`\s+to open a fresh session/);
+  assert.doesNotMatch(output.next_step, /--reopen/);
+  assert.doesNotMatch(output.next_step, /user ended this Shiny AXI session/);
+});
+
+test("persistent layout warnings after a failed fix attempt permit proceeding to the human", () => {
+  const output = createPollOutput({
+    file: "/tmp/report.html",
+    response: {
+      status: "feedback",
+      dom_snapshot: "",
+      prompts: [],
+      layout_warnings: [
+        {
+          selector: "main > header > strong",
+          kind: "overlapping-text",
+          overflowPx: 0,
+          viewportWidth: 720,
+          severity: "warning",
+          persistent: true,
+        },
+      ],
+    },
+  });
+
+  assert.match(output.next_step, /already reported in a prior poll/);
+  assert.match(output.next_step, /fine to proceed to the human with a short note/);
+  assert.doesNotMatch(output.next_step, /fix horizontal overflow/);
+});
+
+test("low-severity text-flow warnings permit proceeding to the human without looping", () => {
+  const output = createPollOutput({
+    file: "/tmp/report.html",
+    response: {
+      status: "feedback",
+      dom_snapshot: "",
+      prompts: [],
+      layout_warnings: [
+        {
+          selector: "main > header > code",
+          kind: "overlapping-text",
+          overflowPx: 0,
+          viewportWidth: 720,
+          severity: "warning",
+          persistent: false,
+        },
+      ],
+    },
+  });
+
+  assert.match(output.next_step, /low-severity layout warning/);
+  assert.match(output.next_step, /fine to proceed to the human with a note/);
+  assert.doesNotMatch(output.next_step, /fix horizontal overflow/);
+});
+
+test("a mix of fresh error-severity and persistent warnings still mandates a fix pass", () => {
+  const output = createPollOutput({
+    file: "/tmp/report.html",
+    response: {
+      status: "feedback",
+      dom_snapshot: "",
+      prompts: [],
+      layout_warnings: [
+        {
+          selector: "html",
+          kind: "page-horizontal-overflow",
+          overflowPx: 16,
+          viewportWidth: 720,
+          severity: "error",
+          persistent: false,
+        },
+        {
+          selector: ".badge",
+          kind: "clipped-text",
+          overflowPx: 12,
+          viewportWidth: 720,
+          severity: "error",
+          persistent: true,
+        },
+      ],
+    },
+  });
+
+  assert.match(output.next_step, /2 layout warnings detected - fix horizontal overflow/);
+  assert.match(output.next_step, /before involving the human/);
+});
+
+test("a mix of persistent errors and fresh low-severity warnings permits proceeding", () => {
+  const output = createPollOutput({
+    file: "/tmp/report.html",
+    response: {
+      status: "feedback",
+      dom_snapshot: "",
+      prompts: [],
+      layout_warnings: [
+        {
+          selector: ".badge",
+          kind: "clipped-text",
+          overflowPx: 12,
+          viewportWidth: 720,
+          severity: "error",
+          persistent: true,
+        },
+        {
+          selector: "main > header > code",
+          kind: "overlapping-text",
+          overflowPx: 0,
+          viewportWidth: 720,
+          severity: "warning",
+          persistent: false,
+        },
+      ],
+    },
+  });
+
+  assert.match(output.next_step, /no fresh error-severity findings/);
+  assert.match(output.next_step, /fine to proceed to the human with a note/);
+  assert.doesNotMatch(output.next_step, /fix horizontal overflow/);
 });
 
 test("poll wait messages tell watching agents the silence is normal", () => {
@@ -509,11 +1087,70 @@ test("html file arguments normalize to the hidden open command", () => {
   assert.deepEqual(normalizeArgv(["--help"]), ["--help"]);
 });
 
+test("SDK reserved commands pass through instead of normalizing to open", () => {
+  assert.deepEqual(normalizeArgv(["update"]), ["update"]);
+  assert.deepEqual(normalizeArgv(["update", "--check"]), ["update", "--check"]);
+  assert.deepEqual(normalizeArgv(["update", "--help"]), ["update", "--help"]);
+});
+
 test("setup hooks resolves HOME before platform-specific user profile variables", () => {
   assert.equal(
-    resolveHookHomeDir({ HOME: "/tmp/shiny-home", USERPROFILE: "C:\\Users\\runneradmin" }, "/fallback"),
-    "/tmp/shiny-home",
+    resolveHookHomeDir({ HOME: "/tmp/lavish-home", USERPROFILE: "C:\\Users\\runneradmin" }, "/fallback"),
+    "/tmp/lavish-home",
   );
+});
+
+test("setup hooks resolves Copilot hook directory from COPILOT_HOME first", () => {
+  assert.equal(
+    resolveCopilotHookDir({ COPILOT_HOME: "/tmp/copilot-home", HOME: "/tmp/home" }),
+    path.join("/tmp/copilot-home", "hooks"),
+  );
+  assert.equal(resolveCopilotHookDir({ HOME: "/tmp/home" }), path.join("/tmp/home", ".copilot", "hooks"));
+});
+
+test("setup hooks creates a Copilot CLI hook that injects additional context", () => {
+  const hook = createCopilotCliSessionStartHook();
+  const [updated, changed] = computeCopilotCliHookUpdate(
+    {
+      version: 1,
+      hooks: {
+        sessionStart: [{ type: "command", bash: "echo keep-me" }],
+      },
+    },
+    hook,
+  );
+
+  assert.equal(changed, true);
+  assert.equal(updated.version, 1);
+  assert.equal(updated.hooks.sessionStart.length, 2);
+  assert.equal(updated.hooks.sessionStart[0].bash, "echo keep-me");
+  assert.match(updated.hooks.sessionStart[1].bash, /additionalContext/);
+  assert.match(updated.hooks.sessionStart[1].powershell, /additionalContext/);
+  assert.match(updated.hooks.sessionStart[1].bash, /shiny-axi/);
+  assert.equal(updated.hooks.sessionStart[1].timeoutSec, 10);
+
+  const [unchanged, unchangedFlag] = computeCopilotCliHookUpdate(updated, hook);
+  assert.equal(unchangedFlag, false);
+  assert.equal(unchanged, updated);
+});
+
+test("Copilot CLI ambient context script wraps lavish output as hook JSON", async () => {
+  const tempDir = await mkdtemp(`${os.tmpdir()}/shiny-axi-copilot-hook-`);
+  try {
+    const fakeCli = path.join(tempDir, "fake-lavish.js");
+    await writeFile(fakeCli, 'console.log("sessions: []");\n', "utf8");
+    const command = `"${process.execPath}" "${fakeCli}"`;
+    const result = spawnSync(process.execPath, ["-e", createCopilotCliAmbientContextScript(command)], {
+      encoding: "utf8",
+    });
+
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    const output = JSON.parse(result.stdout);
+    assert.match(output.additionalContext, /## AXI ambient context: shiny-axi/);
+    assert.match(output.additionalContext, /sessions: \[\]/);
+  } finally {
+    await rm(tempDir, { force: true, recursive: true });
+  }
 });
 
 test("setup hooks installs agent session hooks explicitly", async () => {
@@ -526,15 +1163,23 @@ test("setup hooks installs agent session hooks explicitly", async () => {
       {
         cwd: fileURLToPath(new URL("..", import.meta.url)),
         encoding: "utf8",
-        env: { ...process.env, HOME: homeDir, SHINY_AXI_STATE_DIR: stateDir },
+        env: setupHooksEnv(homeDir, stateDir),
       },
     );
 
     assert.equal(result.status, 0, result.stderr || result.stdout);
     assert.match(result.stdout, /hooks:/);
     assert.match(result.stdout, /status: installed/);
+    assert.match(result.stdout, /GitHub Copilot CLI/);
     assert.match(result.stdout, /Restart your agent session/);
     assert.ok(existsSync(`${homeDir}/.claude/settings.json`));
+    assert.ok(existsSync(`${homeDir}/.copilot/hooks/shiny-axi.json`));
+
+    const copilotHook = JSON.parse(await readFile(`${homeDir}/.copilot/hooks/shiny-axi.json`, "utf8"));
+    assert.equal(copilotHook.version, 1);
+    assert.equal(copilotHook.hooks.sessionStart.length, 1);
+    assert.match(copilotHook.hooks.sessionStart[0].bash, /additionalContext/);
+    assert.match(copilotHook.hooks.sessionStart[0].powershell, /additionalContext/);
   } finally {
     await rm(stateDir, { force: true, recursive: true });
     await rm(homeDir, { force: true, recursive: true });
@@ -554,7 +1199,7 @@ test("setup hooks exits with an error when hook installation fails", async () =>
       {
         cwd: fileURLToPath(new URL("..", import.meta.url)),
         encoding: "utf8",
-        env: { ...process.env, HOME: homeDir, SHINY_AXI_STATE_DIR: stateDir },
+        env: setupHooksEnv(homeDir, stateDir),
       },
     );
 
@@ -566,15 +1211,6 @@ test("setup hooks exits with an error when hook installation fails", async () =>
     await rm(stateDir, { force: true, recursive: true });
     await rm(homeDir, { force: true, recursive: true });
   }
-});
-
-test("telemetry command names are anonymous and do not include file paths", () => {
-  assert.equal(telemetryCommandName(["report.html"]), "open");
-  assert.equal(telemetryCommandName(["poll", "/tmp/secret/report.html"]), "poll");
-  assert.equal(telemetryCommandName(["end", "/tmp/secret/report.html"]), "end");
-  assert.equal(telemetryCommandName(["playbook", "diagram"]), "playbook");
-  assert.equal(telemetryCommandName(["design"]), "design");
-  assert.equal(telemetryCommandName([]), "home");
 });
 
 test("server spawn options detach without inheriting invalid streams", () => {
@@ -706,6 +1342,7 @@ test("open can resume a session without opening another browser window", () => {
   assert.equal(shouldOpenBrowser(["artifact.html"], {}), true);
   assert.match(getCommandHelp("open"), /--no-open/);
   assert.match(getCommandHelp("open"), /--no-gate/);
+  assert.match(getCommandHelp("open"), /--reopen/);
   assert.match(getCommandHelp("playbook"), /diagram/);
   assert.match(getCommandHelp("playbook"), /code/);
   assert.match(getCommandHelp("playbook"), /input/);
@@ -838,6 +1475,34 @@ test("stop command reports when no server is running", async () => {
   }
 });
 
+async function startFakeHtmlApp(requests) {
+  const server = createServer((req, res) => {
+    let raw = "";
+    req.setEncoding("utf8");
+    req.on("data", (chunk) => {
+      raw += chunk;
+    });
+    req.on("end", () => {
+      requests.push({ method: req.method, url: req.url, body: raw ? JSON.parse(raw) : null });
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(
+        JSON.stringify({
+          site_id: "abc123",
+          url: "https://abc123.ht-ml.app/",
+          update_key: "uk_secret",
+          status: "active",
+        }),
+      );
+    });
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
+  const address = server.address();
+  return {
+    port: typeof address === "object" && address ? address.port : 0,
+    close: () => new Promise((resolve) => server.close(() => resolve())),
+  };
+}
+
 test("normalizeArgv preserves shiny command and flags", () => {
   assert.deepEqual(normalizeArgv(["shiny", "./myapp"]), ["shiny", "./myapp"]);
   assert.deepEqual(normalizeArgv(["shiny", "--url", "http://127.0.0.1:3838"]), [
@@ -852,10 +1517,6 @@ test("shiny command help contains R/Shiny reference", () => {
   assert.match(help, /Shiny app/i);
   assert.match(help, /managed mode/i);
   assert.match(help, /attached mode/i);
-});
-
-test("telemetryCommandName identifies shiny command correctly", () => {
-  assert.equal(telemetryCommandName(["shiny", "./myapp"]), "shiny");
 });
 
 test("shiny command with --url skips R environment check and registers session", async () => {
@@ -890,6 +1551,10 @@ test("shiny command with --url skips R environment check and registers session",
     assert.equal(output.session.type, "shiny");
     assert.equal(output.session.status, "opened");
     assert.match(output.session.url, new RegExp(`session/[a-f0-9]{16}`));
+    assert.match(output.next_step, /layout_warnings/);
+    assert.match(output.next_step, /in-iframe layout audit/);
+    assert.match(output.next_step, /If the user ends the session, stop polling and do not reopen it/);
+    assert.match(output.next_step, /shiny-axi shiny .* --reopen/);
   } finally {
     process.env = originalEnv;
     await server.close();
@@ -906,10 +1571,6 @@ test("quarto command help contains Quarto reference", () => {
   const help = getCommandHelp("quarto");
   assert.match(help, /Quarto document/i);
   assert.match(help, /quarto render/i);
-});
-
-test("telemetryCommandName identifies quarto command correctly", () => {
-  assert.equal(telemetryCommandName(["quarto", "./doc.qmd"]), "quarto");
 });
 
 test("quarto command successfully renders and registers session", async () => {
@@ -943,6 +1604,10 @@ format: html
     assert.equal(output.session.type, "quarto");
     assert.equal(output.session.status, "opened");
     assert.match(output.session.url, new RegExp(`session/[a-f0-9]{16}`));
+    assert.match(output.next_step, /layout_warnings/);
+    assert.match(output.next_step, /in-iframe layout audit/);
+    assert.match(output.next_step, /If the user ends the session, stop polling and do not reopen it/);
+    assert.match(output.next_step, /shiny-axi quarto .* --reopen/);
   } finally {
     process.env = originalEnv;
     await server.close();

@@ -1,12 +1,29 @@
 import { EventEmitter } from "node:events";
+import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 import chokidar from "chokidar";
 import express from "express";
 
-import { createArtifactSdk, deriveLavishQueueKey } from "./artifact-sdk.js";
+import {
+  classifyHorizontalOverflow,
+  classifyVerticalOverflow,
+  createArtifactSdk,
+  deriveLavishQueueKey,
+  fragmentsSignificantlyOverlap,
+  isNativeInteractiveControl,
+  resolveVisibleSpillCandidates,
+} from "./artifact-sdk.js";
+import {
+  buildSelfContainedHtml,
+  exportFileName,
+  exportWarningSummaries,
+  splitExportWarnings,
+} from "./export-bundle.js";
+import { publishToHtmlApp } from "./html-app.js";
 import { injectLavishSdk } from "./html-transform.js";
 import { bindHost, hostForUrl, linkHost } from "./paths.js";
 import { canonicalFile, SessionStore, sessionKey } from "./session-store.js";
@@ -44,9 +61,9 @@ const DEFAULT_IDLE_TIMEOUT_MS = 30 * 60_000;
 
 // A detached server should not live forever. When no browser chrome (SSE) and no agent poll
 // are connected for this long, the server shuts itself down so it stops dangling. The next
-// `shiny-axi <file>` invocation re-spawns a fresh server and adopts the session from
-// state.json. Set SHINY_AXI_IDLE_TIMEOUT_MS to 0/off to disable, or to a custom millisecond
-// budget.
+// `shiny-axi <file>` invocation re-spawns a fresh server and adopts resumable sessions from
+// state.json. Browser-ended sessions still require the explicit --reopen opt-in. Set
+// SHINY_AXI_IDLE_TIMEOUT_MS to 0/off to disable, or to a custom millisecond budget.
 export function resolveIdleTimeoutMs(env = process.env) {
   const raw = env.SHINY_AXI_IDLE_TIMEOUT_MS?.trim();
   if (raw === undefined || raw === "") return DEFAULT_IDLE_TIMEOUT_MS;
@@ -103,9 +120,15 @@ export async function serve({
     try {
       const file = await canonicalFile(req.body.file);
       const key = sessionKey(file);
+      const reopen = Boolean(req.body.reopen);
+      const existing = await store.findByKey(key);
+      if (existing?.status === "ended" && existing.ended_by === "user" && !reopen) {
+        logEvent?.(`session open blocked (user-ended) key=${key} file=${file}`);
+        res.json({ key, file, url: existing.url, status: "user-ended" });
+        return;
+      }
       const sessionUrl = `http://${hostForUrl(linkHostName)}:${publicPort}/session/${key}`;
       const url = shouldDisableLayoutGateOpen(req.body || {}) ? appendNoGateParam(sessionUrl) : sessionUrl;
-      const existing = await store.findByKey(key);
       if (shinyProcesses.has(key)) {
         const shinyApp = shinyProcesses.get(key);
         shinyApp.kill();
@@ -127,7 +150,13 @@ export async function serve({
     try {
       const appDir = await canonicalFile(req.body.appDir);
       const key = sessionKey(appDir);
+      const reopen = Boolean(req.body.reopen);
       const existing = await store.findByKey(key);
+      if (existing?.status === "ended" && existing.ended_by === "user" && !reopen) {
+        logEvent?.(`session open blocked (user-ended) key=${key} file=${appDir}`);
+        res.json({ key, file: appDir, url: existing.url, status: "user-ended" });
+        return;
+      }
 
       let shinyUrl = req.body.url || null;
       let shinyPid = null;
@@ -174,7 +203,13 @@ export async function serve({
     try {
       const qmdFile = await canonicalFile(req.body.qmdFile);
       const key = sessionKey(qmdFile);
+      const reopen = Boolean(req.body.reopen);
       const existing = await store.findByKey(key);
+      if (existing?.status === "ended" && existing.ended_by === "user" && !reopen) {
+        logEvent?.(`session open blocked (user-ended) key=${key} file=${qmdFile}`);
+        res.json({ key, file: qmdFile, url: existing.url, status: "user-ended" });
+        return;
+      }
 
       const detect = await detectQuarto();
       if (!detect.ok) {
@@ -352,13 +387,16 @@ export async function serve({
 
   app.post("/api/:key/prompts", async (req, res, next) => {
     try {
+      const shouldEndSession = Boolean(req.body?.endSession || req.body?.end_session);
       const session = await store.queuePrompts(req.params.key, req.body || {});
       if (!session) {
         res.status(404).json({ error: "session not found" });
         return;
       }
-      events.emit("feedback", req.params.key);
+      if (shouldEndSession) clearFeedbackDelivery(req.params.key, activePolls, deliveredFeedback, events);
+      events.emit(shouldEndSession ? "ended" : "feedback", req.params.key);
       res.json({ status: "queued", pending_prompts: session.pending_prompts });
+      if (shouldEndSession) await shutdownIfNoLiveSessions();
     } catch (error) {
       next(error);
     }
@@ -383,7 +421,7 @@ export async function serve({
   app.post("/api/:key/end", async (req, res, next) => {
     try {
       const key = req.params.key;
-      await store.endSession(key);
+      await store.endSession(key, "user");
       if (shinyProcesses.has(key)) {
         const shinyApp = shinyProcesses.get(key);
         shinyApp.kill();
@@ -398,6 +436,68 @@ export async function serve({
       events.emit("ended", key);
       res.json({ status: "ended" });
       await shutdownIfNoLiveSessions();
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/:key/export", async (req, res, next) => {
+    try {
+      const session = await store.findByKey(req.params.key);
+      if (!session) {
+        res.status(404).json({ error: "session not found" });
+        return;
+      }
+      const source = await readFile(session.file, "utf8");
+      const root = path.dirname(session.file);
+      const { html, warnings } = await buildSelfContainedHtml(source, {
+        baseDir: root,
+        confineDir: root,
+        resolveAbsolute: resolveDesignAssetPath,
+      });
+      const { unresolved, notices } = splitExportWarnings(warnings);
+      res.setHeader("content-disposition", exportContentDisposition(session.file));
+      res.setHeader("x-lavish-export-warning-count", String(unresolved.length));
+      res.setHeader("x-lavish-export-notice-count", String(notices.length));
+      res.type("html").send(html);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/:key/share", async (req, res, next) => {
+    try {
+      if (!isSameOriginRequest(req)) {
+        res.status(403).json({ error: "cross-origin share request rejected" });
+        return;
+      }
+      const session = await store.findByKey(req.params.key);
+      if (!session) {
+        res.status(404).json({ error: "session not found" });
+        return;
+      }
+      const body = req.body || {};
+      const source = await readFile(session.file, "utf8");
+      const root = path.dirname(session.file);
+      const { html, warnings } = await buildSelfContainedHtml(source, {
+        baseDir: root,
+        confineDir: root,
+        resolveAbsolute: resolveDesignAssetPath,
+      });
+      let site;
+      try {
+        site = await publishToHtmlApp(html, { password: optionalBodyString(body.password) });
+      } catch (error) {
+        res.status(502).json({ error: error instanceof Error ? error.message : String(error) });
+        return;
+      }
+      const { unresolved, notices } = splitExportWarnings(warnings);
+      res.json({
+        ...site,
+        ...(warnings.length ? { warnings: exportWarningSummaries(warnings) } : {}),
+        ...(unresolved.length ? { unresolved_local_assets: exportWarningSummaries(unresolved) } : {}),
+        ...(notices.length ? { notices: exportWarningSummaries(notices) } : {}),
+      });
     } catch (error) {
       next(error);
     }
@@ -422,7 +522,7 @@ export async function serve({
     try {
       const file = await canonicalFile(req.body.file);
       const key = sessionKey(file);
-      await store.endSession(key);
+      await store.endSession(key, "agent");
       if (shinyProcesses.has(key)) {
         const shinyApp = shinyProcesses.get(key);
         shinyApp.kill();
@@ -1003,6 +1103,14 @@ const chromeIcons = {
     '<path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3z"/><circle cx="12" cy="13" r="3"/>',
     15,
   ),
+  download: chromeIcon(
+    '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>',
+    15,
+  ),
+  globe: chromeIcon(
+    '<circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a14.5 14.5 0 0 1 0 18a14.5 14.5 0 0 1 0-18z"/>',
+    15,
+  ),
   exit: chromeIcon(
     '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>',
     15,
@@ -1093,23 +1201,36 @@ export function createChromeHtml(session, { layoutGateEnabled = true } = {}) {
   }
   const bodyClass = layoutGateEnabled ? "lavish layout-gate-active" : "lavish";
   const layoutGateHidden = layoutGateEnabled ? "" : " hidden";
-  return `<!doctype html>
+  return (
+    `<!doctype html>
 <html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Lavish Editor</title>
+<title>Shiny AXI</title>
 <link rel="stylesheet" href="/chrome.css">
 </head>
 <body class="${bodyClass}">
-<div class="bar"><div class="brand"><span class="brand-mark">Lavish</span><span class="brand-support">Editor</span>${badge}</div><div class="spacer" aria-hidden="true"></div><button class="annotate-switch" id="annotation" type="button" aria-pressed="true"><span class="switch-track" aria-hidden="true"><span class="switch-knob"></span></span><span>Annotate</span></button><div class="more-wrap" id="moreWrap"><button class="more-button" id="moreButton" type="button" title="More" aria-haspopup="menu" aria-expanded="false">${chromeIcons.more}</button><div class="menu more-menu" id="moreMenu" hidden><div class="menu-head"><div class="menu-label">Editing</div><button class="menu-file" id="copyPath" type="button" title="Copy path · ${escapeHtml(session.file)}">${chromeIcons.file}<span class="menu-file-text"><span class="path-head">${escapeHtml(pathHead)}</span><span class="path-tail">${escapeHtml(pathTail)}</span></span><span class="copy-hint" id="copyHint"><span class="icon-copy">${chromeIcons.copy}</span><span class="icon-check">${chromeIcons.check}</span><span id="copyHintText">Copy</span></span></button></div><div class="menu-rule"></div><button class="menu-item" id="reloadArtifact" type="button">${chromeIcons.refresh}<span>${reloadText}</span></button><button class="menu-item" id="copySnapshot" type="button">${chromeIcons.camera}<span>Copy DOM snapshot</span></button><div class="menu-rule"></div><button class="menu-item danger" id="end" type="button">${chromeIcons.exit}<span>End session</span></button></div></div></div>
+<div class="bar"><div class="brand"><span class="brand-mark">Lavish</span><span class="brand-support">Editor</span>${badge}</div><div class="spacer" aria-hidden="true"></div><button class="annotate-switch" id="annotation" type="button" aria-pressed="true"><span class="switch-track" aria-hidden="true"><span class="switch-knob"></span></span><span>Annotate</span></button><div class="more-wrap" id="moreWrap"><button class="more-button" id="moreButton" type="button" title="More" aria-haspopup="menu" aria-expanded="false">${chromeIcons.more}</button><div class="menu more-menu" id="moreMenu" hidden><div class="menu-head"><div class="menu-label">Editing</div><button class="menu-file" id="copyPath" type="button" title="Copy path · ${escapeHtml(session.file)}">${chromeIcons.file}<span class="menu-file-text"><span class="path-head">${escapeHtml(pathHead)}</span><span class="path-tail">${escapeHtml(pathTail)}</span></span><span class="copy-hint" id="copyHint"><span class="icon-copy">${chromeIcons.copy}</span><span class="icon-check">${chromeIcons.check}</span><span id="copyHintText">Copy</span></span></button></div><div class="menu-rule"></div><button class="menu-item" id="reloadArtifact" type="button">${chromeIcons.refresh}<span>${reloadText}</span></button><button class="menu-item" id="copySnapshot" type="button">${chromeIcons.camera}<span>Copy DOM snapshot</span></button><button class="menu-item" id="exportArtifact" type="button">${chromeIcons.download}<span>Export standalone HTML</span></button><button class="menu-item" id="shareArtifact" type="button">${chromeIcons.globe}<span>Publish link</span></button><div class="menu-rule"></div><button class="menu-item danger" id="end" type="button">${chromeIcons.exit}<span>End session</span></button></div></div></div>
 <div class="layout"><div class="frame"><iframe id="artifact" sandbox="${sandbox}" data-artifact-src="${iframeSrc}"></iframe><div class="layout-issue-banner" id="layoutIssueBanner" hidden>This surface may have layout issues. Your agent has been notified.</div></div><aside class="panel"><h2>Conversation</h2><div class="chat" id="chatLog"></div><div class="composer"><div class="presence-banner" id="presenceBanner" hidden>Your agent is not listening. If this persists, ask your agent to poll for updates from Lavish.</div><div class="annotation-pills" id="annotationPills"></div><textarea id="chatInput" placeholder="Write a message for the agent..."></textarea><div class="actions" id="sendActions"><span class="send-hint" id="sendHint" hidden>Write a message or annotate an element first.</span><div class="split"><button class="button send-main" id="send">Send to Agent</button><button class="button send-caret" id="sendCaret" type="button" title="Send options" aria-haspopup="menu" aria-expanded="false">${chromeIcons.caret}</button></div><div class="menu send-menu" id="sendMenu" hidden><button class="menu-item" id="sendFromMenu" type="button">${chromeIcons.send}<span>Send to Agent</span></button><button class="menu-item danger" id="sendAndEnd" type="button">${chromeIcons.exit}<span>Send &amp; end session</span></button></div></div></div></aside></div>
+<div class="share-overlay" id="shareDialog" role="dialog" aria-modal="true" aria-labelledby="shareTitleText" hidden><form class="share-card" id="shareForm"><div class="share-head"><div><div class="share-kicker">Publish to <a class="share-link" href="https://ht-ml.app" target="_blank" rel="noopener noreferrer">ht-ml.app</a></div><h2 id="shareTitleText">Publish artifact</h2></div><button class="share-close" id="shareClose" type="button" aria-label="Close publish dialog"><svg width="14" height="14" viewBox="0 0 10 10" fill="none" aria-hidden="true" focusable="false"><path d="M1 1L9 9M9 1L1 9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button></div><p class="share-note">ht-ml.app is a separate, third-party hosting service, not part of Lavish. Publishing sends this artifact to its servers.</p><p class="share-copy">This uploads this artifact to ht-ml.app with local assets inlined. Without a password, the page is PUBLIC and anyone with the link can open it. With a password, the page is PRIVATE and viewers must supply the password to view.</p><p class="share-note">Do not publish secrets. The Lavish annotation SDK is not included.</p><div class="share-grid"><label>Password (optional)<input id="sharePassword" name="password" type="password" autocomplete="new-password" placeholder="Leave blank for a public page"></label></div><div class="share-status" id="shareStatus" role="status"></div><div class="share-result" id="shareResult" hidden><label>Share URL<div class="share-copy-row"><input id="shareUrl" readonly><button class="share-copy-btn" id="copyShareUrl" type="button">Copy URL</button></div></label><label>Update key (secret)<div class="share-copy-row"><input id="shareUpdateKey" readonly><button class="share-copy-btn" id="copyUpdateKey" type="button">Copy key</button></div></label><p class="share-note">Keep the update key private. ht-ml.app returns it once and it is the only way to update or delete this page later.</p></div><div class="share-actions"><button class="share-cancel" id="shareCancel" type="button">Cancel</button><button class="button" id="sharePublish" type="submit">Publish</button></div></form></div>
 <div class="ended-overlay layout-gate-overlay" id="layoutGateOverlay"${layoutGateHidden}><div class="ended-card"><div class="ended-title" id="layoutGateTitle">Checking layout.<br>One moment.</div><p class="ended-copy" id="layoutGateCopy">Lavish is waiting for fonts and final geometry before revealing this artifact.</p><button class="button ended-action" id="layoutGateAction" type="button">Show anyway</button></div></div>
 <div class="ended-overlay" id="endedOverlay" hidden><div class="ended-card"><div class="ended-title">Session ended.<br>Return to your agent to continue.</div><p class="ended-copy">${escapeHtml(session.file)}</p></div></div>
 <script id="lavish-session" type="application/json">${sessionJson}</script>
 <script src="/chrome-client.js"></script>
 </body>
-</html>`;
+</html>`
+      // Keep the stable `lavish-*` DOM hooks and postMessage protocol for compatibility, while
+      // presenting Shiny AXI as the product everywhere a reviewer can see it.
+      .replaceAll(
+        '<span class="brand-mark">Lavish</span><span class="brand-support">Editor</span>',
+        '<span class="brand-mark">Shiny</span><span class="brand-support">AXI</span>',
+      )
+      .replaceAll("updates from Lavish.", "updates from Shiny AXI.")
+      .replaceAll("not part of Lavish.", "not part of Shiny AXI.")
+      .replaceAll("The Lavish annotation SDK", "The Shiny AXI annotation SDK")
+      .replaceAll("Lavish is waiting for fonts", "Shiny AXI is waiting for fonts")
+  );
 }
 
 export function createSdkJs(key) {
@@ -1117,7 +1238,12 @@ export function createSdkJs(key) {
 const key=${JSON.stringify(key)};
 void key;
 const deriveQueueKey=${deriveLavishQueueKey.toString()};
-(${createArtifactSdk.toString()})(deriveQueueKey);
+const isNativeInteractiveControl=${isNativeInteractiveControl.toString()};
+const fragmentsSignificantlyOverlap=${fragmentsSignificantlyOverlap.toString()};
+const resolveVisibleSpillCandidates=${resolveVisibleSpillCandidates.toString()};
+const classifyHorizontalOverflow=${classifyHorizontalOverflow.toString()};
+const classifyVerticalOverflow=${classifyVerticalOverflow.toString()};
+(${createArtifactSdk.toString()})(deriveQueueKey, isNativeInteractiveControl);
 })();`;
 }
 
@@ -1142,4 +1268,59 @@ function jsonScript(value) {
     .replace(/>/g, "\\u003e")
     .replace(/\u2028/g, "\\u2028")
     .replace(/\u2029/g, "\\u2029");
+}
+
+export function resolveDesignAssetPath(refPath) {
+  const match = /^\/design\/([^/?#]+)(?:[?#].*)?$/.exec(refPath);
+  if (!match) return null;
+  const asset = designAssetUrls[match[1]];
+  if (!asset) return null;
+  const packaged = fileURLToPath(asset.packaged);
+  if (existsSync(packaged)) return packaged;
+  const source = fileURLToPath(asset.source);
+  return existsSync(source) ? source : null;
+}
+
+export function exportContentDisposition(file) {
+  const filename = exportFileName(file);
+  return `attachment; filename="${sanitizeDispositionFilename(filename)}"; filename*=UTF-8''${encodeRfc5987Value(filename)}`;
+}
+
+function sanitizeDispositionFilename(filename) {
+  const fallback = Array.from(String(filename || ""), (char) => {
+    const codePoint = char.codePointAt(0) || 0;
+    if (codePoint < 0x20 || codePoint > 0x7e || char === '"' || char === "\\") return "_";
+    return char;
+  }).join("");
+  return fallback || "artifact.export.html";
+}
+
+function encodeRfc5987Value(value) {
+  return encodeURIComponent(String(value)).replace(
+    /['()*]/g,
+    (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`,
+  );
+}
+
+function isSameOriginRequest(req) {
+  const expectedOrigin = `${req.protocol}://${req.get("host")}`;
+  const origin = req.get("origin");
+  if (origin) {
+    return normalizeOrigin(origin) === expectedOrigin;
+  }
+  const referer = req.get("referer");
+  return Boolean(referer) && normalizeOrigin(referer) === expectedOrigin;
+}
+
+function normalizeOrigin(value) {
+  try {
+    return new URL(value).origin;
+  } catch {
+    return "";
+  }
+}
+
+function optionalBodyString(value) {
+  const trimmed = String(value ?? "").trim();
+  return trimmed || undefined;
 }

@@ -23,10 +23,12 @@ test("installable skill stays in sync with the no-args home output", async () =>
   assert.equal(committed, createSkillMarkdown(), "run `npm run build:skill` and commit the result");
 });
 
-test("published package includes the installable skill", async () => {
+test("published package includes the installable skill and its contribution documentation", async () => {
   const packageJson = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
 
   assert.ok(packageJson.files.includes("skills/shiny-axi"));
+  assert.ok(packageJson.files.includes("UPSTREAM.md"));
+  assert.ok(packageJson.files.includes("CONTRIBUTING.md"));
 });
 
 test("build copies local design assets for published artifact injection", async () => {
@@ -66,11 +68,8 @@ test("release workflow publishes from the release tag checkout", async () => {
   );
 });
 
-test("release workflow keeps telemetry env during npm publish prepack", async () => {
+test("release workflow does not configure upstream telemetry", async () => {
   const workflow = await readFile(new URL("../.github/workflows/release-please.yml", import.meta.url), "utf8");
 
-  assert.match(
-    workflow,
-    /run: npm publish --access public --provenance\n\s+if: \$\{\{ steps\.release\.outputs\.release_created \}\}\n\s+env:\n\s+SHINY_AXI_UMAMI_HOST: https:\/\/a\.kunchenguid\.com\n\s+SHINY_AXI_UMAMI_WEBSITE_ID: \$\{\{ vars\.SHINY_AXI_UMAMI_WEBSITE_ID \}\}/,
-  );
+  assert.doesNotMatch(workflow, /UMAMI|kunchenguid\.com/);
 });

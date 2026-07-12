@@ -8,7 +8,7 @@ function skillCommandText(text) {
   return text.replaceAll("`shiny-axi", "`npx -y shiny-axi");
 }
 
-test("createSkillMarkdown emits valid frontmatter naming the shiny-axi skill", () => {
+test("createSkillMarkdown emits valid frontmatter naming the Shiny AXI skill", () => {
   const md = createSkillMarkdown();
   assert.ok(md.startsWith("---\n"), "starts with frontmatter fence");
   const end = md.indexOf("\n---\n", 4);
@@ -18,6 +18,9 @@ test("createSkillMarkdown emits valid frontmatter naming the shiny-axi skill", (
   assert.match(frontmatter, /^description: /m);
   assert.match(frontmatter, /^argument-hint: /m);
   assert.ok(frontmatter.includes(SKILL_DESCRIPTION), "frontmatter carries the skill description");
+  assert.match(SKILL_DESCRIPTION, /R Shiny/i);
+  assert.match(SKILL_DESCRIPTION, /Quarto/i);
+  assert.doesNotMatch(SKILL_DESCRIPTION, /plan, comparison, diagram/i);
 });
 
 test("createSkillMarkdown emits Hermes Agent metadata in frontmatter", () => {
@@ -26,6 +29,8 @@ test("createSkillMarkdown emits Hermes Agent metadata in frontmatter", () => {
 
   assert.match(frontmatter, /^author: freestatman$/m);
   assert.match(frontmatter, /^metadata:\n {2}hermes:\n {4}tags: \[[^\]]+\]\n {4}category: \S+$/m);
+  assert.match(frontmatter, /^ {4}tags: \[r, shiny, quarto, review\]$/m);
+  assert.doesNotMatch(frontmatter, /tags: \[html,/);
   assert.doesNotMatch(frontmatter, /^version:/m, "version is omitted to avoid release churn");
 });
 
@@ -35,6 +40,14 @@ test("createSkillMarkdown handles explicit /shiny-axi invocation arguments", () 
 
   assert.ok(body.includes("$ARGUMENTS"), "body consumes slash-command arguments");
   assert.match(body, /empty/i, "explains the model-invoked case where no arguments are passed");
+});
+
+test("createSkillMarkdown routes its default workflow through the R commands", () => {
+  const md = createSkillMarkdown();
+
+  assert.match(md, /npx -y shiny-axi shiny <app-dir>/);
+  assert.match(md, /npx -y shiny-axi quarto <file\.qmd>/);
+  assert.doesNotMatch(md, /1\. Create the HTML artifact/);
 });
 
 test("createSkillMarkdown mirrors the no-args home output", () => {
@@ -52,18 +65,17 @@ test("createSkillMarkdown mirrors the no-args home output", () => {
     assert.ok(md.includes(playbook.use_when), `includes playbook use_when: ${playbook.id}`);
   }
 
-  for (const item of home.help) {
-    const skillItem = skillCommandText(item);
-    assert.ok(md.includes(skillItem), `includes help: ${skillItem.slice(0, 32)}...`);
-  }
+  assert.ok(md.includes("Choose `shiny` for an R Shiny app directory"));
+  assert.ok(md.includes("Do not use this skill for a general HTML artifact outside an R workflow"));
 });
 
-test("createSkillMarkdown encourages reading every relevant playbook", () => {
+test("createSkillMarkdown requires opening every matching playbook", () => {
   const md = createSkillMarkdown();
   const playbooksSection = md.slice(md.indexOf("## Playbooks"), md.indexOf("## Commands & rules"));
 
   assert.ok(playbooksSection.includes("combines several playbooks"), "explains artifacts span playbooks");
-  assert.ok(playbooksSection.includes("read every playbook relevant"), "encourages reading all relevant playbooks");
+  assert.ok(playbooksSection.includes("MUST open each matching playbook"), "requires opening matching playbooks");
+  assert.ok(playbooksSection.includes("do not hand-build boxes-and-arrows"), "names the diagram anti-pattern");
 });
 
 test("createSkillMarkdown does not leak live session state", () => {
@@ -80,7 +92,8 @@ test("createSkillMarkdown omits setup hooks guidance", () => {
 test("createSkillMarkdown uses non-interactive npx commands", () => {
   const md = createSkillMarkdown();
 
-  assert.match(md, /`npx -y shiny-axi <html-file>`/);
+  assert.match(md, /`npx -y shiny-axi shiny <app-dir>`/);
+  assert.match(md, /`npx -y shiny-axi quarto <file\.qmd>`/);
   assert.match(md, /If shiny-axi output shows a follow-up command starting with `shiny-axi`/);
   assert.match(md, /run it as `npx -y shiny-axi/);
   assert.doesNotMatch(md, /`npx shiny-axi/);

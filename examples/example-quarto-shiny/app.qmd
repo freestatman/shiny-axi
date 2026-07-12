@@ -1,6 +1,6 @@
 ---
 title: "Quarto Shiny: Interactive Analytics Dashboard"
-author: "Lavish Analyst"
+author: "Shiny AXI"
 format: 
   html:
     theme: cosmo

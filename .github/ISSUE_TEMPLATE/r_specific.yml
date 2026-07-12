@@ -1,0 +1,39 @@
+name: R-specific proposal
+description: Propose a Shiny, Quarto, or R-workflow improvement for Shiny AXI
+labels: ["R-specific"]
+body:
+  - type: dropdown
+    id: r_surface
+    attributes:
+      label: R workflow
+      description: Which R-specific surface would this change affect?
+      options:
+        - R Shiny application
+        - Quarto document
+        - Quarto Shiny application
+        - R-specific documentation, skill, or example
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem to solve
+      description: Describe the R workflow and the limitation or missed use case.
+      placeholder: When reviewing a Quarto Shiny document, I need to…
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Explain the expected user-visible behavior and any relevant R, Shiny, or Quarto constraints.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Include any workaround or reason this should remain specific to the R workflow.

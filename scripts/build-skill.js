@@ -1,5 +1,5 @@
-// Generates skills/lavish/SKILL.md from the shared no-args home output so the
-// installable skill never drifts from what `lavish-axi` (and the SessionStart hook) print.
+// Generates the installable skill from the shared no-args home output so it never
+// drifts from what `shiny-axi` (and the SessionStart hook) print.
 //
 //   node scripts/build-skill.js          # write the file
 //   node scripts/build-skill.js --check  # fail (exit 1) if the committed file is stale
@@ -23,7 +23,7 @@ if (check) {
     console.error("skills/shiny-axi/SKILL.md is out of date. Run `node scripts/build-skill.js` and commit the result.");
     process.exit(1);
   }
-  console.log("skills/lavish/SKILL.md is up to date.");
+  console.log("skills/shiny-axi/SKILL.md is up to date.");
 } else {
   await mkdir(new URL("../skills/shiny-axi/", import.meta.url), { recursive: true });
   await writeFile(target, expected);
