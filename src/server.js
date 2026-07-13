@@ -131,7 +131,7 @@ export async function serve({
       const url = shouldDisableLayoutGateOpen(req.body || {}) ? appendNoGateParam(sessionUrl) : sessionUrl;
       if (shinyProcesses.has(key)) {
         const shinyApp = shinyProcesses.get(key);
-        shinyApp.kill();
+        await killShinyApp(shinyApp);
         shinyProcesses.delete(key);
       }
       const session = await store.upsertSession(file, sessionUrl);
@@ -164,7 +164,7 @@ export async function serve({
       if (!shinyUrl) {
         if (shinyProcesses.has(key)) {
           const oldProc = shinyProcesses.get(key);
-          oldProc.kill();
+          await killShinyApp(oldProc);
           shinyProcesses.delete(key);
         }
 
@@ -220,7 +220,7 @@ export async function serve({
       if (await isQuartoShinyFile(qmdFile)) {
         if (shinyProcesses.has(key)) {
           const oldApp = shinyProcesses.get(key);
-          oldApp.kill();
+          await killShinyApp(oldApp);
           shinyProcesses.delete(key);
         }
         const freePort = await findFreePort();
@@ -705,15 +705,12 @@ export async function serve({
   });
 
   let shuttingDown = false;
-  function shutdown() {
+  async function shutdown() {
     if (shuttingDown) return;
     shuttingDown = true;
+    const killPromises = [];
     for (const shinyApp of shinyProcesses.values()) {
-      try {
-        shinyApp.kill();
-      } catch {
-        // best effort
-      }
+      killPromises.push(killShinyApp(shinyApp));
     }
     shinyProcesses.clear();
     for (const controller of quartoRenders.values()) {
@@ -744,6 +741,7 @@ export async function serve({
       w.close().catch(() => {});
     }
     watchers.clear();
+    await Promise.all(killPromises);
     httpServer.close(() => shutdownResolve());
     // Force-close keep-alive sockets so SSE / long-polls don't keep us alive.
     if (typeof httpServer.closeAllConnections === "function") {
@@ -886,37 +884,48 @@ async function watchSession(
     }
     shinyRestartInProgress = true;
     shinyRestartPending = false;
-    logEvent?.(`auto-restarting quarto-shiny for key=${session.key}`);
+    const isQuartoShiny = session.type === "quarto-shiny";
+    const typeLabel = isQuartoShiny ? "quarto-shiny" : "shiny";
+    logEvent?.(`auto-restarting ${typeLabel} for key=${session.key}`);
     const oldApp = shinyProcesses.get(session.key);
     const controller = new AbortController();
-    if (quartoRenders) {
+    if (quartoRenders && isQuartoShiny) {
       quartoRenders.set(session.key, controller);
     }
     try {
       if (oldApp) {
-        oldApp.kill();
+        await killShinyApp(oldApp);
         shinyProcesses.delete(session.key);
       }
-      const logFn = logEvent ? (line) => logEvent(`[quarto-shiny] ${line}`) : null;
-      const quartoShinyApp = await launchQuartoShiny(session.qmdFile || session.file, {
-        port: oldApp ? oldApp.port : await findFreePort(),
-        host: "127.0.0.1",
-        log: logFn,
-      });
-      shinyProcesses.set(session.key, quartoShinyApp);
+      const logFn = logEvent ? (line) => logEvent(`[${typeLabel}] ${line}`) : null;
+      let newApp;
+      if (isQuartoShiny) {
+        newApp = await launchQuartoShiny(session.qmdFile || session.file, {
+          port: oldApp ? oldApp.port : await findFreePort(),
+          host: "127.0.0.1",
+          log: logFn,
+        });
+      } else {
+        newApp = await launchShiny(session.file, {
+          port: oldApp ? oldApp.port : await findFreePort(),
+          host: "127.0.0.1",
+          log: logFn,
+        });
+      }
+      shinyProcesses.set(session.key, newApp);
       if (store) {
         await store.upsertSession(session.file, session.url, {
           type: session.type,
           qmdFile: session.qmdFile,
-          shinyUrl: quartoShinyApp.url,
-          shinyPid: quartoShinyApp.process.pid,
+          shinyUrl: newApp.url,
+          shinyPid: newApp.process.pid,
         });
       }
       events.emit("reload", session.key);
     } catch (error) {
-      logEvent?.(`quarto-shiny restart failed: ${error}`);
+      logEvent?.(`${typeLabel} restart failed: ${error}`);
     } finally {
-      if (quartoRenders) {
+      if (quartoRenders && isQuartoShiny) {
         quartoRenders.delete(session.key);
       }
       shinyRestartInProgress = false;
@@ -932,7 +941,7 @@ async function watchSession(
     if (session.type === "quarto" && quartoRenders) {
       clearTimeout(quartoRenderTimer);
       quartoRenderTimer = setTimeout(runQuartoRender, 100);
-    } else if (session.type === "quarto-shiny" && shinyProcesses) {
+    } else if ((session.type === "quarto-shiny" || session.type === "shiny") && shinyProcesses) {
       clearTimeout(shinyRestartTimer);
       shinyRestartTimer = setTimeout(runShinyRestart, 100);
     } else {
@@ -1323,4 +1332,17 @@ function normalizeOrigin(value) {
 function optionalBodyString(value) {
   const trimmed = String(value ?? "").trim();
   return trimmed || undefined;
+}
+
+async function killShinyApp(shinyApp) {
+  if (!shinyApp) return;
+  const proc = shinyApp.process;
+  if (proc && proc.exitCode === null && proc.signalCode === null) {
+    await new Promise((resolve) => {
+      proc.once("exit", resolve);
+      shinyApp.kill();
+    });
+  } else {
+    shinyApp.kill();
+  }
 }

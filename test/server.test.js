@@ -19,6 +19,7 @@ import {
 } from "../src/server.js";
 import { canonicalFile, sessionKey, SessionStore } from "../src/session-store.js";
 import { detectQuarto } from "../src/quarto-process.js";
+import { detectRscript } from "../src/shiny-process.js";
 
 async function chromeClientSource() {
   return readFile(new URL("../src/chrome-client.js", import.meta.url), "utf8");
@@ -2740,6 +2741,67 @@ numericInput("n", "N", 10)
 
     // Update the QMD file
     await writeFile(qmdFile, qmdContent + "\n# added comment\n", "utf8");
+
+    // Wait for watcher to trigger restart
+    let restarted = false;
+    for (let i = 0; i < 20; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      const s2 = await store.findByKey(key);
+      if (s2.shinyPid && s2.shinyPid !== originalPid) {
+        restarted = true;
+        break;
+      }
+    }
+
+    assert.ok(restarted, "Shiny process should have restarted with a new PID");
+  } finally {
+    await server.close();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("shiny session watch restarts server process on file change", async () => {
+  const detect = await detectRscript();
+  if (!detect.ok) {
+    return;
+  }
+
+  const dir = await mkdtemp(path.join(tmpdir(), "lavish-server-shiny-watch-"));
+  const state = path.join(dir, "state.json");
+  const server = await serve({ port: 0, stateFile: state });
+
+  const appFile = path.join(dir, "app.R");
+  const appContent = `
+library(shiny)
+ui <- fluidPage(
+  tags$h1("Test Shiny App"),
+  textInput("text", "Input text", "hello")
+)
+server <- function(input, output) {}
+shinyApp(ui, server)
+`;
+
+  try {
+    await writeFile(appFile, appContent, "utf8");
+    const base = `http://127.0.0.1:${server.port}`;
+    const res = await fetch(`${base}/api/shiny-sessions`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ appDir: dir }),
+    });
+
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    const key = body.key;
+
+    // Get initial session to find original PID
+    const store = new SessionStore(state);
+    const s1 = await store.findByKey(key);
+    const originalPid = s1.shinyPid;
+    assert.ok(originalPid);
+
+    // Update the App file
+    await writeFile(appFile, appContent + "\n# added comment\n", "utf8");
 
     // Wait for watcher to trigger restart
     let restarted = false;
