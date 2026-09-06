@@ -3,6 +3,8 @@ package-lock.json
 skills-lock.json
 dist/
 coverage/
+.claude/
+.agents/
 .lavish/
 .lavish-axi/
 .DS_Store
