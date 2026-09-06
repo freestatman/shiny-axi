@@ -36,19 +36,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
         if: ${{ steps.release.outputs.release_created }}
 
-      - run: pnpm run lint
-        if: ${{ steps.release.outputs.release_created }}
-
-      - run: pnpm run format:check
-        if: ${{ steps.release.outputs.release_created }}
-
-      - run: pnpm run typecheck
-        if: ${{ steps.release.outputs.release_created }}
-
-      - run: pnpm test
-        if: ${{ steps.release.outputs.release_created }}
-
-      - run: pnpm run build
+      - run: pnpm run check
         if: ${{ steps.release.outputs.release_created }}
 
       - run: npm publish --access public --provenance

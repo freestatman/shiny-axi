@@ -1,12 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { createHomeOutput } from "../src/cli.js";
 import { SKILL_DESCRIPTION, createSkillMarkdown } from "../src/skill.js";
-
-function skillCommandText(text) {
-  return text.replaceAll("`shiny-axi", "`npx -y shiny-axi");
-}
 
 test("createSkillMarkdown emits valid frontmatter naming the Shiny AXI skill", () => {
   const md = createSkillMarkdown();
@@ -20,6 +15,9 @@ test("createSkillMarkdown emits valid frontmatter naming the Shiny AXI skill", (
   assert.ok(frontmatter.includes(SKILL_DESCRIPTION), "frontmatter carries the skill description");
   assert.match(SKILL_DESCRIPTION, /R Shiny/i);
   assert.match(SKILL_DESCRIPTION, /Quarto/i);
+  assert.match(SKILL_DESCRIPTION, /visual/i);
+  assert.match(SKILL_DESCRIPTION, /Use when/i);
+  assert.ok(SKILL_DESCRIPTION.length <= 200, "description remains concise for skill discovery");
   assert.doesNotMatch(SKILL_DESCRIPTION, /plan, comparison, diagram/i);
 });
 
@@ -50,32 +48,15 @@ test("createSkillMarkdown routes its default workflow through the R commands", (
   assert.doesNotMatch(md, /1\. Create the HTML artifact/);
 });
 
-test("createSkillMarkdown mirrors the no-args home output", () => {
+test("createSkillMarkdown stays focused on the R visual-review loop", () => {
   const md = createSkillMarkdown();
-  const home = createHomeOutput({ bin: "shiny-axi", sessions: [], includeSessions: false });
-
-  assert.ok(md.includes(skillCommandText(home.description)), "includes the product description");
-
-  for (const item of home.visual_guidance) {
-    assert.ok(md.includes(item), `includes visual guidance: ${item.slice(0, 32)}...`);
-  }
-
-  for (const playbook of home.playbooks) {
-    assert.ok(md.includes(playbook.id), `includes playbook id: ${playbook.id}`);
-    assert.ok(md.includes(playbook.use_when), `includes playbook use_when: ${playbook.id}`);
-  }
 
   assert.ok(md.includes("Choose `shiny` for an R Shiny app directory"));
   assert.ok(md.includes("Do not use this skill for a general HTML artifact outside an R workflow"));
-});
-
-test("createSkillMarkdown requires opening every matching playbook", () => {
-  const md = createSkillMarkdown();
-  const playbooksSection = md.slice(md.indexOf("## Playbooks"), md.indexOf("## Commands & rules"));
-
-  assert.ok(playbooksSection.includes("combines several playbooks"), "explains artifacts span playbooks");
-  assert.ok(playbooksSection.includes("MUST open each matching playbook"), "requires opening matching playbooks");
-  assert.ok(playbooksSection.includes("do not hand-build boxes-and-arrows"), "names the diagram anti-pattern");
+  assert.match(md, /Do not launch.*only because.*build|Do not launch.*merely.*build/i);
+  assert.doesNotMatch(md, /^## Visual guidance$/m);
+  assert.doesNotMatch(md, /^## Playbooks$/m);
+  assert.ok(md.length < 4_500, "router skill remains small enough to load cheaply");
 });
 
 test("createSkillMarkdown does not leak live session state", () => {

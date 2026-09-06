@@ -15,3 +15,17 @@ test("issue forms route R-specific and upstream-core proposals to their governan
   assert.match(upstreamCore, /generic/i);
   assert.match(upstreamCore, /id: upstream_discussion/);
 });
+
+test("public contribution surfaces route security reports privately and provide a PR checklist", async () => {
+  const [security, issueConfig, pullRequestTemplate] = await Promise.all([
+    readFile(new URL("../SECURITY.md", import.meta.url), "utf8"),
+    readFile(new URL("../.github/ISSUE_TEMPLATE/config.yml", import.meta.url), "utf8"),
+    readFile(new URL("../.github/pull_request_template.md", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(security, /security\/advisories\/new/);
+  assert.match(security, /Do not open a public issue/i);
+  assert.match(issueConfig, /security\/advisories\/new/);
+  assert.match(pullRequestTemplate, /pnpm run check/);
+  assert.match(pullRequestTemplate, /CHANGELOG\.md/);
+});

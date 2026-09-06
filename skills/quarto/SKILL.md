@@ -1,7 +1,7 @@
 ---
 name: quarto
-description: Launch a Quarto document session and use shiny-axi to interactively review and annotate the rendered HTML document.
-argument-hint: <what part of the Quarto document to review or modify>
+description: Visually review rendered Quarto documents with shiny-axi and map browser feedback to source. Use when the user asks to inspect, annotate, or iterate on Quarto output.
+argument-hint: <document path or visual-review goal>
 author: freestatman
 metadata:
   hermes:
@@ -9,57 +9,52 @@ metadata:
     category: productivity
 ---
 
-# Quarto AXI
+# Quarto visual review
 
-Quarto AXI helps agents interactively review and iterate on Quarto (`.qmd`) documents. By rendering a `.qmd` document to HTML and serving it, the user can visually annotate elements or selected text ranges and send feedback directly to the agent. The agent then modifies the `.qmd` source code (markdown, YAML frontmatter, code chunks) to update the document.
+Use this skill for an explicit browser-based review of a Quarto document. Do not launch a review only because a user asks to write, edit, render, or debug Quarto source.
 
-You do not need shiny-axi installed globally - invoke it with `npx -y shiny-axi quarto <file.qmd>`.
-If shiny-axi output shows a follow-up command starting with `shiny-axi`, run it as `npx -y shiny-axi ...` instead.
+Run commands with `npx -y shiny-axi ...`; no global installation is required. Always use the `quarto` command so changes go back to source, never the static HTML command.
 
-**Important**: Do NOT use the regular visual review skill for Quarto documents. Always use `shiny-axi quarto`, never `shiny-axi <file.html>`. The static visual review skill creates static HTML artifacts; `quarto` manages the source, preview, and source-change reloads for the running document.
+## Modes
 
-### Static documents vs Quarto Shiny
+- **Static document** — the default workflow runs `quarto render` and serves the generated HTML.
+- **Quarto Shiny document** — when YAML contains `server: shiny` or `server: { type: shiny }`, Shiny AXI runs `quarto serve` and proxies the live app. Source changes restart the serve process.
 
-- **Static document**: The default workflow runs `quarto render` and serves the generated HTML.
-- **Quarto Shiny document**: When YAML frontmatter contains `server: shiny` (or `server: { type: shiny }`), the workflow runs `quarto serve` and proxies the live app instead. Save source changes normally; Shiny AXI restarts that local serve process before refreshing the preview.
+## Review loop
 
-## When to use
-
-Use this skill when:
-
-- The user asks to write, modify, format, or debug a Quarto (`.qmd`) document.
-- The user wants to visually review and annotate the structure, content, charts, tables, or formatting of a rendered Quarto report/document.
-- You want to receive precise, visually anchored annotations on a Quarto document to improve the document's content and design.
-
-## Workflow
-
-1. **Verify Quarto environment**: Confirm Quarto is installed (`quarto --version`).
-2. **Launch Quarto session**: Run `npx -y shiny-axi quarto <file.qmd>`.
-3. **Poll for feedback**: Run `npx -y shiny-axi poll <file.qmd>`. It stays silent while waiting for annotations or browser-reported `layout_warnings` - leave it running. If the harness interrupts or times out the poll, re-run it safely; queued feedback is retained.
-4. **Receive feedback**: When the user acts or the browser finds a layout issue, the poll can return:
-   - `prompts`: User annotations with element selectors, tags, and comments. For text annotations, it includes selected text ranges and boundary anchors.
-   - `dom_snapshot`: A snapshot of the rendered document's DOM tree at the time of annotation.
-   - `layout_warnings`: Browser-detected overflow, clipping, or overlap findings.
-   - `next_step`: The authoritative instruction for the returned feedback batch.
-5. **Handle layout warnings first**: Follow `next_step`. Fix and re-check fresh error-severity `layout_warnings` before asking the user for more review. If every warning is persistent or low-severity, it is acceptable to continue with a short note rather than loop indefinitely.
-6. **Apply code modifications**: Locate the corresponding sections or code chunks in the `.qmd` file and edit them.
-7. **Auto-update preview**: Saving changes to the `.qmd` file (or other files in the same directory) refreshes the browser. Static documents are rendered again with `quarto render`; Quarto Shiny documents restart their local `quarto serve` process.
-8. **Reply & Wait**: Run `npx -y shiny-axi poll <file.qmd> --agent-reply "Applied the changes!"` to show your message in the browser and wait for further annotations.
-9. **Respect session end**: If poll reports the user ended the session, stop polling and do not reopen it. Use `--reopen` only when the user requests another review or something important needs fresh visual confirmation.
-10. **End session**: Run `npx -y shiny-axi end <file.qmd>` when the review session is complete.
+1. Confirm Quarto is installed (`quarto --version`), then open the source: `npx -y shiny-axi quarto <file.qmd>`. The command also accepts supported `.rmd` and `.md` inputs. Keep that exact source path for the whole review.
+2. Run `npx -y shiny-axi poll <file.qmd>`. It stays silent while waiting; leave it running. If the harness interrupts it, re-run it safely because queued feedback is retained.
+3. Read the returned batch:
+   - `prompts` contain annotations; text feedback includes selected text and range anchors.
+   - `dom_snapshot` provides rendered context.
+   - `layout_warnings` report overflow, clipping, or overlap.
+   - `next_step` is authoritative for that batch.
+4. Handle fresh error-severity `layout_warnings` first. Re-check after a fix; if every remaining warning is persistent or warning-only, continue with a short explanation instead of looping.
+5. Locate the owning source with the mapping guidance below and make the smallest relevant source or dependency change.
+6. Saving source refreshes the preview: static documents run `quarto render`; Quarto Shiny documents restart `quarto serve`.
+7. Reply and wait with `npx -y shiny-axi poll <file.qmd> --agent-reply "<concise update>"`.
+8. If poll reports that the user ended the session, stop polling and do not reopen it. Use `--reopen` only when the user explicitly requests another visual review.
+9. When review is complete, run `npx -y shiny-axi end <file.qmd>`.
 
 ## Mapping DOM Elements to Quarto Source
 
-When you receive feedback, use the DOM context to locate the `.qmd` source:
+Treat DOM context as evidence, not a complete source map. Check the selected text, range anchors, IDs, classes, nearby headings, and chunk output together.
 
-- **YAML frontmatter**: Title, subtitle, author, date, and document format options are defined at the very top of the `.qmd` file inside triple-dashes (`---`).
-- **Headings**: Elements like `<h1>`, `<h2>` (or class `level1`, `level2`) map to `# Heading` and `## Heading` in markdown.
-- **Figures and Images**: Look for elements with class `quarto-figure` or `img`. They map to markdown image links (e.g. `![Caption](path/to/img.png)`) or code chunks producing plots.
-- **Tables**: Look for elements like `<table>`. They map to markdown grid/pipe tables or code chunks producing tables (e.g. `knitr::kable()`).
-- **Code chunk outputs**: Look for elements with class `cell-output-display` or `cell-output-stdout`. They are generated by code chunks like ` ```{r} ` or ` ```{python} `. Locate the corresponding chunk to change the output (e.g. modify the plot code, table generation, or analysis options).
+| Rendered clue                                       | Source to inspect                                                         |
+| --------------------------------------------------- | ------------------------------------------------------------------------- |
+| Title, author, date, navigation, or format behavior | YAML frontmatter                                                          |
+| `h1`/`h2` or `level1`/`level2`                      | Markdown headings                                                         |
+| `quarto-figure`, `img`, or a caption                | Markdown image, figure options, or the producing code chunk               |
+| `table`                                             | Markdown table or a chunk using tools such as `knitr::kable()`            |
+| `cell-output-display` or `cell-output-stdout`       | The corresponding named/nearby R, Python, Julia, or Observable code chunk |
+| Site chrome or theme classes                        | Project `_quarto.yml`, theme files, extensions, or custom CSS             |
 
-## Quarto Guidelines
+For a text-range annotation, use the selected text plus its common ancestor and boundary context; a container selector alone is not the complete identity.
 
-- **Self-contained outputs**: Ensure the YAML frontmatter format options are configured appropriately (e.g. `embed-resources: true` to bundle assets, or use default settings if assets reside in the sibling directory).
-- **Execution options**: Use code chunk options to control output visibility (e.g., `#| echo: false` to hide source code, `#| warning: false` to suppress warnings).
-- **Cross-references**: Use Quarto cross-referencing syntax for figures and tables (e.g. `fig-myplot` and `@fig-myplot`) to ensure correct numbering in the rendered HTML.
+## Guardrails
+
+- Edit the source document, project configuration, stylesheet, extension, or data dependency—not rendered HTML.
+- Preserve executable chunk semantics unless feedback requires an analysis change.
+- Use Quarto cross-references for numbered figures and tables rather than hard-coded numbers.
+- Do not add `embed-resources: true` unless portability is requested; it can make outputs much larger.
+- Do not pass `--timeout-ms` during normal agent use.

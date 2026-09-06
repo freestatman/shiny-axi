@@ -1,4 +1,6 @@
 node_modules/
+package-lock.json
+skills-lock.json
 dist/
 coverage/
 .lavish/
@@ -12,3 +14,4 @@ examples/example-quarto/report.html
 
 /demo-output
 /.agents/skills/lavish-quarto
+/evals

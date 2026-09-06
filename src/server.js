@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
@@ -73,6 +74,56 @@ export function resolveIdleTimeoutMs(env = process.env) {
   return value;
 }
 
+export function isExpectedPersistedProcess(session, commandLine) {
+  const pid = Number(session?.shinyPid);
+  if (!Number.isSafeInteger(pid) || pid <= 1) return false;
+
+  let port;
+  try {
+    port = Number(new URL(session.shinyUrl).port);
+  } catch {
+    return false;
+  }
+  if (!Number.isInteger(port) || port <= 0) return false;
+
+  const command = String(commandLine || "").trim();
+  const executableMatch = command.match(/^(?:"([^"]+)"|'([^']+)'|(\S+))/);
+  const executable = path
+    .basename(executableMatch?.[1] || executableMatch?.[2] || executableMatch?.[3] || "")
+    .toLowerCase();
+  const escapedPort = String(port).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const hasExpectedPort = new RegExp(`(?:port\\s*=\\s*|--port(?:=|\\s+))${escapedPort}(?:\\D|$)`, "i").test(command);
+  if (!hasExpectedPort) return false;
+
+  if (session.type === "shiny") {
+    return executable === "r" || executable === "rscript";
+  }
+  if (session.type === "quarto-shiny") {
+    const allowed = new Set(["quarto", "deno", "node", "bash", "sh"]);
+    return allowed.has(executable) && command.includes(String(session.file || ""));
+  }
+  return false;
+}
+
+function killPersistedProcessSafely(session) {
+  if (process.platform === "win32") return false;
+  const pid = Number(session?.shinyPid);
+  if (!Number.isSafeInteger(pid) || pid <= 1) return false;
+
+  try {
+    const command = execFileSync("ps", ["-o", "command=", "-p", String(pid)], { stdio: "pipe" }).toString();
+    if (!isExpectedPersistedProcess(session, command)) return false;
+    try {
+      process.kill(-pid, "SIGTERM");
+    } catch {
+      process.kill(pid, "SIGTERM");
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function serve({
   port,
   stateFile,
@@ -98,6 +149,21 @@ export async function serve({
   const writeLog = typeof log === "function" ? log : (line) => process.stderr.write(`${line}\n`);
   const logEvent = verbose ? (line) => writeLog(`[shiny-axi] ${line}`) : null;
   let publicPort = port;
+
+  // A crashed server can leave a managed R/Quarto process behind. Retire only
+  // persisted managed sessions; attached Shiny and static sessions stay resumable.
+  try {
+    const sessions = await store.listSessions();
+    for (const session of sessions) {
+      const isPersistedManagedSession =
+        session.status !== "ended" && (session.type === "shiny" || session.type === "quarto-shiny") && session.shinyPid;
+      if (!isPersistedManagedSession) continue;
+      killPersistedProcessSafely(session);
+      await store.endSession(session.key, "agent");
+    }
+  } catch (error) {
+    if (verbose) writeLog(`[shiny-axi] Stale session cleanup failed: ${error.message}`);
+  }
 
   app.use(express.json({ limit: "2mb" }));
 
@@ -708,6 +774,8 @@ export async function serve({
   async function shutdown() {
     if (shuttingDown) return;
     shuttingDown = true;
+    process.off("SIGINT", handleSignal);
+    process.off("SIGTERM", handleSignal);
     const killPromises = [];
     for (const shinyApp of shinyProcesses.values()) {
       killPromises.push(killShinyApp(shinyApp));
@@ -789,6 +857,13 @@ export async function serve({
 
   // Arm the idle timer for a server that is spawned but never opens a session.
   refreshIdleTimer();
+
+  function handleSignal() {
+    logEvent?.("received termination signal, shutting down");
+    shutdown();
+  }
+  process.on("SIGINT", handleSignal);
+  process.on("SIGTERM", handleSignal);
 
   return {
     port: httpServer.address().port,

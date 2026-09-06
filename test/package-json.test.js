@@ -16,7 +16,7 @@ test("check script runs all verification commands", async () => {
   ]);
 });
 
-test("installable skill stays in sync with the no-args home output", async () => {
+test("installable router skill stays in sync with its generator", async () => {
   const { createSkillMarkdown } = await import("../src/skill.js");
   const committed = await readFile(new URL("../skills/shiny-axi/SKILL.md", import.meta.url), "utf8");
 
@@ -29,6 +29,14 @@ test("published package includes the installable skill and its contribution docu
   assert.ok(packageJson.files.includes("skills/shiny-axi"));
   assert.ok(packageJson.files.includes("UPSTREAM.md"));
   assert.ok(packageJson.files.includes("CONTRIBUTING.md"));
+  assert.ok(packageJson.files.includes("SECURITY.md"));
+  assert.ok(packageJson.files.includes("CODE_OF_CONDUCT.md"));
+});
+
+test("ci workflow runs the unified check script", async () => {
+  const ci = await readFile(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
+
+  assert.match(ci, /pnpm run check/);
 });
 
 test("build copies local design assets for published artifact injection", async () => {

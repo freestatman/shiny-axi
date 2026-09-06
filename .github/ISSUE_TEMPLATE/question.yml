@@ -1,0 +1,30 @@
+name: Usage question
+description: Ask about installing or using Shiny AXI
+labels: ["question"]
+body:
+  - type: markdown
+    attributes:
+      value: Please remove secrets, private data, and proprietary source before posting.
+
+  - type: textarea
+    id: goal
+    attributes:
+      label: What are you trying to do?
+      description: Name the Shiny or Quarto workflow and the outcome you want.
+    validations:
+      required: true
+
+  - type: textarea
+    id: attempted
+    attributes:
+      label: What have you tried?
+      description: Include the command, relevant output, and whether you are using managed or attached mode.
+    validations:
+      required: true
+
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: Include the Shiny AXI, Node, operating system, and R or Quarto versions that apply.
+      placeholder: shiny-axi 0.1.31, Node 24, macOS 15, R 4.5

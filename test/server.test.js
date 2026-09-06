@@ -11,6 +11,7 @@ import {
   displayPathParts,
   exportContentDisposition,
   hasLiveReloadRootOptIn,
+  isExpectedPersistedProcess,
   resolveArtifactAsset,
   resolveDesignAssetPath,
   resolveIdleTimeoutMs,
@@ -35,6 +36,28 @@ function normalizeCssForAssertions(css) {
     .replace(/\s+/g, " ")
     .replace(/0\./g, ".");
 }
+
+test("stale process cleanup validates exact managed commands and ports", () => {
+  const shiny = { type: "shiny", shinyPid: 123, shinyUrl: "http://127.0.0.1:43210", file: "/tmp/app" };
+  const quarto = {
+    type: "quarto-shiny",
+    shinyPid: 456,
+    shinyUrl: "http://127.0.0.1:43211",
+    file: "/tmp/report.qmd",
+  };
+
+  assert.equal(
+    isExpectedPersistedProcess(
+      shiny,
+      "/usr/bin/R --no-echo -e options(shiny.autoreload=FALSE); shiny::runApp('.', port = 43210)",
+    ),
+    true,
+  );
+  assert.equal(isExpectedPersistedProcess(quarto, "/usr/local/bin/quarto serve /tmp/report.qmd --port 43211"), true);
+  assert.equal(isExpectedPersistedProcess(shiny, "/usr/bin/firefox --profile 43210"), false);
+  assert.equal(isExpectedPersistedProcess(shiny, "/usr/bin/R --no-echo -e shiny::runApp('.', port = 9999)"), false);
+  assert.equal(isExpectedPersistedProcess({ ...shiny, shinyPid: "123; touch /tmp/pwned" }, "R 43210"), false);
+});
 
 async function startPresenceStream(base, key) {
   const controller = new AbortController();

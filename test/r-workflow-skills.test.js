@@ -9,6 +9,25 @@ async function readWorkflowSkills() {
   ]);
 }
 
+function description(skill) {
+  return skill.match(/^description: (.+)$/m)?.[1] || "";
+}
+
+test("R workflow skills trigger only for explicit visual review", async () => {
+  const [shiny, quarto] = await readWorkflowSkills();
+
+  for (const skill of [shiny, quarto]) {
+    const trigger = description(skill);
+    assert.match(trigger, /visual/i);
+    assert.match(trigger, /Use when/i);
+    assert.ok(trigger.length <= 200, "skill description stays within common discovery limits");
+    assert.match(skill, /Do not launch|only when.*visual/i);
+  }
+
+  assert.doesNotMatch(shiny, /The user asks to build, modify, or debug an R Shiny application/);
+  assert.doesNotMatch(quarto, /The user asks to write, modify, format, or debug a Quarto/);
+});
+
 test("R workflow skills guide agents through layout-warning feedback and safe poll recovery", async () => {
   const [shiny, quarto] = await readWorkflowSkills();
 
@@ -58,5 +77,24 @@ test("R workflow skills respect a user-ended review session", async () => {
     assert.match(skill, /user ended the session/i);
     assert.match(skill, /do not reopen it/i);
     assert.match(skill, /--reopen/);
+  }
+});
+
+test("R workflow skills use non-interactive npx commands and require canonical paths", async () => {
+  const [shiny, quarto] = await readWorkflowSkills();
+
+  for (const skill of [shiny, quarto]) {
+    assert.match(skill, /`npx -y shiny-axi /);
+    assert.match(skill, /exact.*path/i);
+  }
+});
+
+test("R workflow skills enforce guardrails against editing generated HTML and using debug timeout flags", async () => {
+  const [shiny, quarto] = await readWorkflowSkills();
+
+  for (const skill of [shiny, quarto]) {
+    assert.match(skill, /## Guardrails/);
+    assert.match(skill, /not.*rendered HTML|not edit generated.*HTML/i);
+    assert.match(skill, /--timeout-ms/);
   }
 });

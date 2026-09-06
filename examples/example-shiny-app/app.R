@@ -41,7 +41,7 @@ ui <- fluidPage(
 server <- function(input, output) {
   output$distPlot <- renderPlotly({
     x <- faithful$waiting
-    plot_ly(x = x, type = "histogram", nbinsx = input$bins, marker = list(color = "red")) %>%
+    plot_ly(x = x, type = "histogram", nbinsx = input$bins, marker = list(color = "steelblue")) %>%
       layout(title = input$title,
              xaxis = list(title = "Waiting time to next eruption (in mins)"),
              yaxis = list(title = "Count"),
