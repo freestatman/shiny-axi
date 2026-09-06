@@ -1,5 +1,68 @@
 # Changelog
 
+## [0.1.32](https://github.com/freestatman/shiny-axi/compare/shiny-axi-v0.1.31...shiny-axi-v0.1.32) (2026-09-06)
+
+
+### Features
+
+* add input feedback controls ([#17](https://github.com/freestatman/shiny-axi/issues/17)) ([8eda036](https://github.com/freestatman/shiny-axi/commit/8eda036cfd6604823fad4945f9970b32a40e520a))
+* add interactive Quarto Shiny app annotation support ([594ed83](https://github.com/freestatman/shiny-axi/commit/594ed83a6f052763b59dba30c1a8ba4fa328b9ff))
+* add interactive R Shiny app annotation support ([3b9255a](https://github.com/freestatman/shiny-axi/commit/3b9255a01a7b5b17b4365f68e91745bc207e6902))
+* add layout audit curtain gate ([#97](https://github.com/freestatman/shiny-axi/issues/97)) ([0fa3968](https://github.com/freestatman/shiny-axi/commit/0fa3968fdf1f7184f52a8d5eb6eeeccc106b46cb))
+* add Quarto document support and fix infinite reload loop ([0fa703c](https://github.com/freestatman/shiny-axi/commit/0fa703c000c9a965865c15ad85a3416ee612a6eb))
+* add quarto-shiny example and fix watcher infinite loop by ignoring .rmarkdown files ([c15a3b6](https://github.com/freestatman/shiny-axi/commit/c15a3b6228f5ec47b6fef23eb67c812fccd59cc9))
+* **chrome:** align editor chrome with v2 UI ([#63](https://github.com/freestatman/shiny-axi/issues/63)) ([da6c19e](https://github.com/freestatman/shiny-axi/commit/da6c19ec4882024a55333adc83ca481ec16d09c8))
+* **cli:** add artifact guidance playbooks ([#12](https://github.com/freestatman/shiny-axi/issues/12)) ([b13f033](https://github.com/freestatman/shiny-axi/commit/b13f033973f91935af97e0688574a0767e66463b))
+* **cli:** add server shutdown controls ([#54](https://github.com/freestatman/shiny-axi/issues/54)) ([33c5b45](https://github.com/freestatman/shiny-axi/commit/33c5b4549693d7c8fb5ca8dc59595dcf9377b4cd))
+* **cli:** broaden plan playbook guidance ([#52](https://github.com/freestatman/shiny-axi/issues/52)) ([aa533c4](https://github.com/freestatman/shiny-axi/commit/aa533c42c77a696ac0817402688b17cf29c5bdd5))
+* **cli:** guide agents to combine relevant playbooks ([#73](https://github.com/freestatman/shiny-axi/issues/73)) ([d0c6e47](https://github.com/freestatman/shiny-axi/commit/d0c6e47d9eaed2efb40c0a14a152ffb8f602900e))
+* **cli:** improve AXI home guidance ([#4](https://github.com/freestatman/shiny-axi/issues/4)) ([70b5a30](https://github.com/freestatman/shiny-axi/commit/70b5a30bd2c0cadb97068fa79da316db4a6895ec))
+* **cli:** inject packaged design assets ([#16](https://github.com/freestatman/shiny-axi/issues/16)) ([2eb6170](https://github.com/freestatman/shiny-axi/commit/2eb61706823257a677bd8490e97bfe20a98080fa))
+* initial commit ([7f1fc95](https://github.com/freestatman/shiny-axi/commit/7f1fc957f9d24a5ebae38fdfe43ad3cb717929b7))
+* prepare Shiny AXI for open source ([3bdd1cf](https://github.com/freestatman/shiny-axi/commit/3bdd1cf0d26004b32e603840840e4d18e64cbe67))
+* **quarto:** add Quarto document and Quarto Shiny app support ([c7a5591](https://github.com/freestatman/shiny-axi/commit/c7a55919d882d6e26f95f5ff25fc8a26c34fdc44))
+* refine R workflow skills and open-source readiness ([57c8edd](https://github.com/freestatman/shiny-axi/commit/57c8edd9257565dd92251b6870338daaf97bd5f6))
+* rename diff playbook to code ([#85](https://github.com/freestatman/shiny-axi/issues/85)) ([0e3487f](https://github.com/freestatman/shiny-axi/commit/0e3487f3bd95ca9a1902fb1dfbb462c7d218fe44))
+* report browser layout warnings through poll ([#95](https://github.com/freestatman/shiny-axi/issues/95)) ([4809102](https://github.com/freestatman/shiny-axi/commit/480910213eb2f12d2c4c514ee4a5c1f03ce1655f))
+* send on Enter in chat input and annotation card ([#58](https://github.com/freestatman/shiny-axi/issues/58)) ([e88679f](https://github.com/freestatman/shiny-axi/commit/e88679f6a02a3ba4fdd6424d569e34f919025077))
+* **server:** configurable bind address and link hostname ([#61](https://github.com/freestatman/shiny-axi/issues/61)) ([4bbdafd](https://github.com/freestatman/shiny-axi/commit/4bbdafd3dc41233540b07e034359973506bef6d9))
+* **skills:** add Hermes metadata to lavish skill ([#82](https://github.com/freestatman/shiny-axi/issues/82)) ([e634c23](https://github.com/freestatman/shiny-axi/commit/e634c232ec64e97be2643b33235d3fe4c39eb6b8))
+* **skills:** add installable Lavish agent skill ([#59](https://github.com/freestatman/shiny-axi/issues/59)) ([5f7cb2e](https://github.com/freestatman/shiny-axi/commit/5f7cb2e4263220ff38f63117ae6293616278fdf6))
+* **skill:** support /lavish invocation ([#67](https://github.com/freestatman/shiny-axi/issues/67)) ([cd87b1f](https://github.com/freestatman/shiny-axi/commit/cd87b1f057848b1114ad414e99c27808ad044222))
+* support text range annotations ([#10](https://github.com/freestatman/shiny-axi/issues/10)) ([dd0ed5c](https://github.com/freestatman/shiny-axi/commit/dd0ed5c1340e945ddd33ebb66317b5e28c78f3e6))
+* sync lavish design skill to v2 ([#65](https://github.com/freestatman/shiny-axi/issues/65)) ([d9cfc9d](https://github.com/freestatman/shiny-axi/commit/d9cfc9d42ae8a7875626878d10711cd20f23f2af))
+
+
+### Bug Fixes
+
+* Add Ctrl+Enter immediate-send shortcut to the annotation card ([#71](https://github.com/freestatman/shiny-axi/issues/71)) ([9922767](https://github.com/freestatman/shiny-axi/commit/9922767ca7f7eb5e4bec02345464fcf107fab42c))
+* allow native form controls during annotation ([#56](https://github.com/freestatman/shiny-axi/issues/56)) ([e355502](https://github.com/freestatman/shiny-axi/commit/e355502fb312620108c2dcd38b4280a23e9e27e1))
+* bypass R check in attached mode and improve lavish-shiny skill ([9334095](https://github.com/freestatman/shiny-axi/commit/93340952543516b0d66d8398c1b645fd050dc69a))
+* clarify artifact design system guidance ([#89](https://github.com/freestatman/shiny-axi/issues/89)) ([6486407](https://github.com/freestatman/shiny-axi/commit/64864071f739344e3c148e4d570430e0495de586))
+* **cli:** improve poll and design guidance ([#74](https://github.com/freestatman/shiny-axi/issues/74)) ([302efac](https://github.com/freestatman/shiny-axi/commit/302efac1c73e486a01486dd394bc49f79fd8ae7b))
+* **cli:** make interrupted poll guidance reliable ([#76](https://github.com/freestatman/shiny-axi/issues/76)) ([1a01e26](https://github.com/freestatman/shiny-axi/commit/1a01e2603a545bea773e5126beb653ba84d1a8b5))
+* **cli:** prioritize project design guidance ([#50](https://github.com/freestatman/shiny-axi/issues/50)) ([ee782c0](https://github.com/freestatman/shiny-axi/commit/ee782c04d737d888f9f3b3bae1916137d791516b))
+* **cli:** require explicit agent hook setup ([#46](https://github.com/freestatman/shiny-axi/issues/46)) ([4a250b8](https://github.com/freestatman/shiny-axi/commit/4a250b843edbe4204599526c753bc94b798c9785))
+* **cli:** require polling before user replies ([#33](https://github.com/freestatman/shiny-axi/issues/33)) ([c23c86c](https://github.com/freestatman/shiny-axi/commit/c23c86c499cd16d7cf23ee7d48dca8ee7b74f174))
+* **cli:** restart stale servers after upgrades ([#6](https://github.com/freestatman/shiny-axi/issues/6)) ([d473557](https://github.com/freestatman/shiny-axi/commit/d4735576a0fb3933304a4c1394195b512d60ccda))
+* editor chrome refresh ([#2](https://github.com/freestatman/shiny-axi/issues/2)) ([68caaef](https://github.com/freestatman/shiny-axi/commit/68caaef46fadf767ed70bf215a5fe9bda44b3190))
+* harden feedback polling and queued prompts ([#41](https://github.com/freestatman/shiny-axi/issues/41)) ([ec1e664](https://github.com/freestatman/shiny-axi/commit/ec1e6643533a01f93389532d382897b0451201ee))
+* ignore changelog in prettier checks ([c18d955](https://github.com/freestatman/shiny-axi/commit/c18d955af9cf3892150fc207be783c1b0bc90a74))
+* improve Lavish design fallback guidance ([#78](https://github.com/freestatman/shiny-axi/issues/78)) ([db9f294](https://github.com/freestatman/shiny-axi/commit/db9f2943a19ef626ccc233d7b4d66dafdf52cc51))
+* keep Lavish artifacts portable by default ([#40](https://github.com/freestatman/shiny-axi/issues/40)) ([6dc80bc](https://github.com/freestatman/shiny-axi/commit/6dc80bc6d411a19c48d14444d8aa2a13afdaf58f))
+* metadata ([0ac6980](https://github.com/freestatman/shiny-axi/commit/0ac698092c94c0f7c91011ad58db2ddfe673a680))
+* preserve artifact scroll on hot reload ([#48](https://github.com/freestatman/shiny-axi/issues/48)) ([81599a1](https://github.com/freestatman/shiny-axi/commit/81599a1f70ff08732b4a809e8634f5f4942b9d3b))
+* **quarto-shiny:** restart server process on file change for hidden paths ([2d802b8](https://github.com/freestatman/shiny-axi/commit/2d802b8cae0d6bf75abae0be2920eac012d97652))
+* resolve reload and refresh issues for Quarto-based sessions ([9c2eee8](https://github.com/freestatman/shiny-axi/commit/9c2eee850bf122df1e0f62502c89ad28dc08a70b))
+* restart Shiny app process on file changes for hot reloading ([05941db](https://github.com/freestatman/shiny-axi/commit/05941dbab39ad36a30ec725dd01ac9a4ed4f6390))
+* **server:** prevent live reload watcher stalls ([#38](https://github.com/freestatman/shiny-axi/issues/38)) ([cc1c841](https://github.com/freestatman/shiny-axi/commit/cc1c8411d3410b591fd5d1de945ba93c889af0e7))
+* **server:** track agent presence across polling states ([#31](https://github.com/freestatman/shiny-axi/issues/31)) ([351d7b4](https://github.com/freestatman/shiny-axi/commit/351d7b4174fb4f64b7683ea85a93537ecbb33ad3))
+* **skills:** hide internal agent skills from discovery ([#80](https://github.com/freestatman/shiny-axi/issues/80)) ([a4bd520](https://github.com/freestatman/shiny-axi/commit/a4bd520bbbda62a06de6a8c592cd5aebdc5ef055))
+* supersede unsent input choices ([#92](https://github.com/freestatman/shiny-axi/issues/92)) ([352dd0d](https://github.com/freestatman/shiny-axi/commit/352dd0d91d00f7914e23282b4b036eaa1ba7ecd2))
+* support local artifact assets in hidden directories ([#44](https://github.com/freestatman/shiny-axi/issues/44)) ([2528e8e](https://github.com/freestatman/shiny-axi/commit/2528e8e571cfd0ed299be842df9943c56868f4ac))
+* trigger release ([9bbf27f](https://github.com/freestatman/shiny-axi/commit/9bbf27fe77f0e8baa656b577e27fc536d3c7474a))
+* upgrade axi js sdk ([#14](https://github.com/freestatman/shiny-axi/issues/14)) ([dfb07f8](https://github.com/freestatman/shiny-axi/commit/dfb07f8862867f07e907c5ad975e14738c0992b2))
+
 ## [0.1.31](https://github.com/kunchenguid/lavish-axi/compare/lavish-axi-v0.1.30...lavish-axi-v0.1.31) (2026-06-16)
 
 
