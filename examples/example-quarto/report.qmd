@@ -1,6 +1,6 @@
 ---
 title: "Quarto Report: Health & Crime Analysis"
-author: "Lavish Analyst"
+author: "Shiny AXI"
 date: "June 17, 2026"
 format:
   html:

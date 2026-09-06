@@ -4,7 +4,8 @@ node_modules
 .lavish-axi
 .no-mistakes
 lavish-code-review.html
-package-lock.json
 CHANGELOG.md
-.agents
-docs
+examples/**/*.html
+examples/**/*.css
+examples/**/*.js
+examples/**/app_files/

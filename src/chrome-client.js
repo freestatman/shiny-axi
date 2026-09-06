@@ -4,7 +4,7 @@ const sessionDataElement = document.getElementById("lavish-session");
 const sessionData = JSON.parse(sessionDataElement?.textContent || "{}");
 const key = String(sessionData.key || "");
 const filePath = String(sessionData.file || "");
-const queueStorageKey = "shiny-axi:queued:" + key;
+const queueStorageKey = "lavish-axi:queued:" + key;
 const internalQueueKeyField = "_lavishQueueKey";
 const initialChat = Array.isArray(sessionData.initialChat) ? sessionData.initialChat : [];
 
@@ -24,6 +24,20 @@ const moreButton = /** @type {HTMLButtonElement} */ (document.getElementById("mo
 const moreMenu = /** @type {HTMLDivElement} */ (document.getElementById("moreMenu"));
 const reloadArtifactButton = /** @type {HTMLButtonElement} */ (document.getElementById("reloadArtifact"));
 const copySnapshotButton = /** @type {HTMLButtonElement} */ (document.getElementById("copySnapshot"));
+const exportArtifactButton = /** @type {HTMLButtonElement} */ (document.getElementById("exportArtifact"));
+const shareArtifactButton = /** @type {HTMLButtonElement} */ (document.getElementById("shareArtifact"));
+const shareDialog = /** @type {HTMLDivElement} */ (document.getElementById("shareDialog"));
+const shareForm = /** @type {HTMLFormElement} */ (document.getElementById("shareForm"));
+const shareCloseButton = /** @type {HTMLButtonElement} */ (document.getElementById("shareClose"));
+const shareCancelButton = /** @type {HTMLButtonElement} */ (document.getElementById("shareCancel"));
+const sharePublishButton = /** @type {HTMLButtonElement} */ (document.getElementById("sharePublish"));
+const sharePasswordInput = /** @type {HTMLInputElement} */ (document.getElementById("sharePassword"));
+const shareStatus = /** @type {HTMLDivElement} */ (document.getElementById("shareStatus"));
+const shareResult = /** @type {HTMLDivElement} */ (document.getElementById("shareResult"));
+const shareUrlInput = /** @type {HTMLInputElement} */ (document.getElementById("shareUrl"));
+const shareUpdateKeyInput = /** @type {HTMLInputElement} */ (document.getElementById("shareUpdateKey"));
+const copyShareUrlButton = /** @type {HTMLButtonElement} */ (document.getElementById("copyShareUrl"));
+const copyUpdateKeyButton = /** @type {HTMLButtonElement} */ (document.getElementById("copyUpdateKey"));
 const endButton = /** @type {HTMLButtonElement} */ (document.getElementById("end"));
 const copyPathButton = /** @type {HTMLButtonElement} */ (document.getElementById("copyPath"));
 const copyHint = /** @type {HTMLSpanElement} */ (document.getElementById("copyHint"));
@@ -109,7 +123,7 @@ function render() {
         escapeHtml(prompt.prompt) +
         '</span><button class="pill-close" type="button" aria-label="Remove queued prompt" data-index="' +
         index +
-        '">×</button></div><div class="pill-tooltip">' +
+        '"><svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true" focusable="false"><path d="M1 1L9 9M9 1L1 9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button></div><div class="pill-tooltip">' +
         (prompt.selector
           ? '<div class="tooltip-label">Target</div><div class="pill-tooltip-target">' +
             escapeHtml(prompt.selector) +
@@ -314,21 +328,26 @@ async function submitQueued() {
     submitQueuedAgain = false;
     if (!succeeded) {
       endAfterSubmit = false;
-    } else if (shouldSubmitAgain && queued.length) {
-      submitQueued();
-    } else if (endAfterSubmit) {
-      endAfterSubmit = false;
-      await endSession();
+    } else if (!ended && shouldSubmitAgain) {
+      if (queued.length) {
+        submitQueued();
+      } else if (endAfterSubmit) {
+        endAfterSubmit = false;
+        endSession();
+      }
     }
   }
 }
 
 async function submitQueuedOnce() {
   const prompts = queued.slice();
+  const shouldEndSession = endAfterSubmit;
+  const body = { prompts: prompts.map(stripInternalPromptFields), domSnapshot: pendingSnapshot };
+  if (shouldEndSession) body.endSession = true;
   const response = await fetch("/api/" + key + "/prompts", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ prompts: prompts.map(stripInternalPromptFields), domSnapshot: pendingSnapshot }),
+    body: JSON.stringify(body),
   });
   if (!response.ok) throw new Error("failed to submit queued prompts");
   for (const prompt of prompts) {
@@ -337,6 +356,11 @@ async function submitQueuedOnce() {
   }
   persistQueuedPrompts();
   render();
+  if (shouldEndSession) {
+    endAfterSubmit = false;
+    markSessionEnded();
+    return;
+  }
   if (agentPresence === "listening") setAgentPresence("working");
 }
 
@@ -370,7 +394,7 @@ function setLayoutGateCard(state) {
   }
 
   layoutGateTitle.innerHTML = "Checking layout.<br>One moment.";
-  layoutGateCopy.textContent = "Lavish is waiting for fonts and final geometry before revealing this artifact.";
+  layoutGateCopy.textContent = "Shiny AXI is waiting for fonts and final geometry before revealing this artifact.";
 }
 
 function setLayoutGateActive(active) {
@@ -391,7 +415,7 @@ function forceRevealLayoutGate(reason) {
   if (reason === "manual") layoutGateManuallyBypassed = true;
   const bannerText =
     reason === "timeout"
-      ? "This surface may have layout issues. Lavish revealed it after the safety timeout so review is never blocked."
+      ? "This surface may have layout issues. Shiny AXI revealed it after the safety timeout so review is never blocked."
       : "This surface may have layout issues. You chose to show it before the layout check passed.";
   revealLayoutGate({ showBanner: true, bannerText });
 }
@@ -460,6 +484,11 @@ async function endSession() {
   if (ended) return;
   const response = await fetch("/api/" + key + "/end", { method: "POST" });
   if (!response.ok) throw new Error("failed to end session");
+  markSessionEnded();
+}
+
+function markSessionEnded() {
+  if (ended) return;
   ended = true;
   closeMenus();
   annotationSwitch.disabled = true;
@@ -487,6 +516,128 @@ function copyFilePath() {
 function copyDomSnapshot() {
   closeMenus();
   requestSnapshot("copy");
+}
+
+function exportFileName() {
+  const base = (filePath.split(/[\\/]/).pop() || "artifact.html").replace(/\.html?$/i, "");
+  return (base || "artifact") + ".export.html";
+}
+
+function setExportLabel(text) {
+  const label = exportArtifactButton.querySelector("span");
+  if (label) label.textContent = text;
+}
+
+function unresolvedAssetText(count) {
+  return count === 1 ? "1 unresolved asset" : `${count} unresolved assets`;
+}
+
+function noticeText(count) {
+  return count === 1 ? "1 notice" : `${count} notices`;
+}
+
+function exportWarningText(unresolvedCount, noticeCount) {
+  if (unresolvedCount > 0 && noticeCount > 0) {
+    return `${unresolvedAssetText(unresolvedCount)} and ${noticeText(noticeCount)}`;
+  }
+  if (unresolvedCount > 0) return unresolvedAssetText(unresolvedCount);
+  return noticeText(noticeCount);
+}
+
+async function exportArtifact() {
+  // The bundle inlines local assets server-side, so it can take a moment - keep the menu open
+  // and narrate progress in place instead of closing it and leaving the user with no feedback.
+  exportArtifactButton.disabled = true;
+  setExportLabel("Exporting...");
+  try {
+    const response = await fetch("/api/" + key + "/export");
+    if (!response.ok) throw new Error("export failed");
+    const warningCount = Number(response.headers.get("x-lavish-export-warning-count") || "0");
+    const noticeCount = Number(response.headers.get("x-lavish-export-notice-count") || "0");
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = exportFileName();
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+    if (warningCount > 0 || noticeCount > 0) {
+      setExportLabel(`Exported with ${exportWarningText(warningCount, noticeCount)}`);
+    } else {
+      setExportLabel("Export standalone HTML");
+      closeMenus();
+    }
+  } catch {
+    setExportLabel("Export failed - retry");
+  } finally {
+    exportArtifactButton.disabled = false;
+  }
+}
+
+function openShareDialog() {
+  closeMenus();
+  shareDialog.hidden = false;
+  shareStatus.textContent = "";
+  shareStatus.classList.remove("error");
+  shareResult.hidden = true;
+  sharePasswordInput.value = "";
+  sharePasswordInput.focus();
+}
+
+function closeShareDialog() {
+  shareDialog.hidden = true;
+}
+
+async function copyToButton(value, button, label) {
+  await copyText(value);
+  button.textContent = "Copied";
+  setTimeout(() => {
+    button.textContent = label;
+  }, 1200);
+}
+
+async function publishShare(event) {
+  event.preventDefault();
+  sharePublishButton.disabled = true;
+  shareStatus.classList.remove("error");
+  shareStatus.textContent = "Publishing to ht-ml.app...";
+  shareResult.hidden = true;
+  const password = sharePasswordInput.value.trim();
+  const passwordProtected = Boolean(password);
+  try {
+    const response = await fetch("/api/" + key + "/share", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(password ? { password } : {}),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "publish failed");
+    shareUrlInput.value = data.url || "";
+    shareUpdateKeyInput.value = data.update_key || "";
+    const unresolvedAssets = Array.isArray(data.unresolved_local_assets) ? data.unresolved_local_assets : [];
+    const notices = Array.isArray(data.notices) ? data.notices : [];
+    const warningCount = unresolvedAssets.length;
+    const noticeCount = notices.length;
+    const noticeSummary = noticeCount ? noticeText(noticeCount) : "";
+    shareStatus.textContent =
+      warningCount > 0
+        ? `Published with ${warningCount === 1 ? "1 unresolved local asset" : `${warningCount} unresolved local assets`}${noticeSummary ? ` and ${noticeSummary}` : ""}.${passwordProtected ? " This page is PASSWORD-PROTECTED; viewers also need the password." : ""}`
+        : noticeCount > 0
+          ? `Published with ${noticeSummary}.${passwordProtected ? " This page is PASSWORD-PROTECTED; viewers also need the password." : ""}`
+          : passwordProtected
+            ? "Published. This page is PASSWORD-PROTECTED; viewers also need the password."
+            : "Published. Anyone with the link can view this page.";
+    shareResult.hidden = false;
+    shareUrlInput.focus();
+    shareUrlInput.select();
+  } catch (error) {
+    shareStatus.classList.add("error");
+    shareStatus.textContent = error instanceof Error ? error.message : String(error);
+  } finally {
+    sharePublishButton.disabled = false;
+  }
 }
 
 function resetFrame() {
@@ -575,6 +726,16 @@ chatInput.addEventListener("input", hideSendHint);
 copyPathButton.onclick = copyFilePath;
 reloadArtifactButton.onclick = reloadArtifact;
 copySnapshotButton.onclick = copyDomSnapshot;
+exportArtifactButton.onclick = exportArtifact;
+shareArtifactButton.onclick = openShareDialog;
+shareCloseButton.onclick = closeShareDialog;
+shareCancelButton.onclick = closeShareDialog;
+shareForm.addEventListener("submit", publishShare);
+shareDialog.addEventListener("click", (event) => {
+  if (event.target === shareDialog) closeShareDialog();
+});
+copyShareUrlButton.onclick = () => copyToButton(shareUrlInput.value, copyShareUrlButton, "Copy URL");
+copyUpdateKeyButton.onclick = () => copyToButton(shareUpdateKeyInput.value, copyUpdateKeyButton, "Copy key");
 endButton.onclick = () => {
   closeMenus();
   endSession();
@@ -585,7 +746,13 @@ document.addEventListener("mousedown", (event) => {
   if (!sendMenu.hidden && !sendActions.contains(target)) setMenuOpen(sendCaret, sendMenu, false);
 });
 document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape") closeMenus();
+  if (event.key === "Escape") {
+    if (!shareDialog.hidden) {
+      closeShareDialog();
+    } else {
+      closeMenus();
+    }
+  }
 });
 frame.addEventListener("load", () => {
   postToFrame({ type: "lavish:setAnnotationMode", enabled: annotation && !ended });

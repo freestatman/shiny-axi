@@ -69,6 +69,7 @@ export async function launchShiny(appDir, { port, host = "127.0.0.1", signal, lo
     cwd: appDir,
     env: { ...process.env },
     signal,
+    detached: true,
   });
 
   const writeLog = typeof log === "function" ? log : (line) => process.stderr.write(`[shiny] ${line}\n`);
@@ -91,7 +92,11 @@ export async function launchShiny(appDir, { port, host = "127.0.0.1", signal, lo
   const kill = () => {
     if (killed) return;
     killed = true;
-    child.kill("SIGTERM");
+    try {
+      process.kill(-child.pid, "SIGTERM");
+    } catch {
+      child.kill("SIGTERM");
+    }
   };
 
   // Wait for Shiny server to become responsive

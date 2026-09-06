@@ -1,10 +1,17 @@
 node_modules/
+package-lock.json
+skills-lock.json
 dist/
 coverage/
 .lavish/
 .lavish-axi/
 .DS_Store
 *.log
+.pnpm-store/
+.no-mistakes/
+.agents/
+examples/example-quarto/report.html
 
 /demo-output
 /.agents/skills/lavish-quarto
+/evals

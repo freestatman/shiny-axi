@@ -54,6 +54,7 @@ export class SessionStore {
       pending_prompts: existing.pending_prompts || 0,
       prompts: existingPrompts,
       layout_warnings: [],
+      delivered_layout_warning_keys: existing.delivered_layout_warning_keys || [],
       dom_snapshot: existing.dom_snapshot || "",
       chat: existing.chat || [],
       updated_at: new Date().toISOString(),
@@ -70,6 +71,8 @@ export class SessionStore {
       return null;
     }
     const prompts = Array.isArray(payload.prompts) ? payload.prompts : [];
+    const shouldEndSession = Boolean(payload.endSession || payload.end_session);
+    const alreadyEnded = session.status === "ended";
     const normalizedPrompts = prompts.map(normalizePrompt);
     const userMessages = normalizedPrompts
       .filter((prompt) => prompt.tag === "message" && prompt.prompt)
@@ -78,7 +81,8 @@ export class SessionStore {
     session.chat = [...(session.chat || []), ...userMessages];
     session.pending_prompts = session.prompts.length;
     session.dom_snapshot = String(payload.domSnapshot || payload.dom_snapshot || "");
-    session.status = "feedback";
+    session.status = shouldEndSession || alreadyEnded ? "ended" : "feedback";
+    if (shouldEndSession) session.ended_by = "user";
     session.updated_at = new Date().toISOString();
     await this.writeState(state);
     return session;
@@ -90,13 +94,25 @@ export class SessionStore {
     if (!session) {
       return null;
     }
-    const layoutWarnings = normalizeLayoutWarnings(payload.layout_warnings || payload.layoutWarnings || []);
+    const deliveredWarningKeys = session.delivered_layout_warning_keys || [];
+    const deliveredKeys = new Set(deliveredWarningKeys);
+    const layoutWarnings = normalizeLayoutWarnings(
+      payload.layout_warnings || payload.layoutWarnings || [],
+      deliveredKeys,
+    );
+    const activeWarningKeys = new Set(layoutWarnings.map(layoutWarningKey));
+    const nextDeliveredWarningKeys = deliveredWarningKeys.filter((key) => activeWarningKeys.has(key)).slice(-200);
+    const deliveredKeysChanged =
+      nextDeliveredWarningKeys.length !== deliveredWarningKeys.length ||
+      nextDeliveredWarningKeys.some((key, index) => key !== deliveredWarningKeys[index]);
     const previousSignature = JSON.stringify(session.layout_warnings || []);
     const nextSignature = JSON.stringify(layoutWarnings);
-    if (previousSignature === nextSignature) {
+    const warningsChanged = previousSignature !== nextSignature;
+    if (!warningsChanged && !deliveredKeysChanged) {
       return { session, changed: false, hasWarnings: layoutWarnings.length > 0 };
     }
     session.layout_warnings = layoutWarnings;
+    session.delivered_layout_warning_keys = nextDeliveredWarningKeys;
     if (layoutWarnings.length > 0 && session.status !== "ended") {
       session.status = "feedback";
     } else if ((session.prompts || []).length === 0 && session.status !== "ended") {
@@ -104,7 +120,7 @@ export class SessionStore {
     }
     session.updated_at = new Date().toISOString();
     await this.writeState(state);
-    return { session, changed: true, hasWarnings: layoutWarnings.length > 0 };
+    return { session, changed: warningsChanged, hasWarnings: layoutWarnings.length > 0 };
   }
 
   async takeFeedback(key) {
@@ -117,20 +133,29 @@ export class SessionStore {
     // agent, so deliver them before reporting the ended state; the next poll then sees ended.
     const prompts = session.prompts || [];
     const layoutWarnings = session.layout_warnings || [];
+    const alreadyEnded = session.status === "ended";
     if (prompts.length === 0 && layoutWarnings.length === 0) {
-      return session.status === "ended" ? { status: "ended" } : { status: "waiting" };
+      return alreadyEnded ? { status: "ended", ended_by: session.ended_by } : { status: "waiting" };
     }
     const result = {
       status: "feedback",
       dom_snapshot: session.dom_snapshot || "",
       prompts,
       ...(layoutWarnings.length > 0 ? { layout_warnings: layoutWarnings } : {}),
+      // This is the final delivery before the session shows as ended - flag it so the agent
+      // knows not to expect (or force) a reopened browser afterward.
+      ...(alreadyEnded ? { session_ended: true, ended_by: session.ended_by } : {}),
     };
     session.prompts = [];
     session.layout_warnings = [];
     session.pending_prompts = 0;
     session.dom_snapshot = "";
-    if (session.status !== "ended") {
+    if (layoutWarnings.length > 0) {
+      const deliveredKeys = new Set(session.delivered_layout_warning_keys || []);
+      for (const warning of layoutWarnings) deliveredKeys.add(layoutWarningKey(warning));
+      session.delivered_layout_warning_keys = [...deliveredKeys].slice(-200);
+    }
+    if (!alreadyEnded) {
       session.status = "open";
     }
     session.updated_at = new Date().toISOString();
@@ -138,13 +163,16 @@ export class SessionStore {
     return result;
   }
 
-  async endSession(key) {
+  async endSession(key, endedBy = "agent") {
     const state = await this.readState();
     const session = state.sessions[key];
     if (!session) {
       return null;
     }
+    const existingEndedBy = session.status === "ended" ? session.ended_by : undefined;
+    const nextEndedBy = endedBy === "user" || existingEndedBy === "user" ? "user" : "agent";
     session.status = "ended";
+    session.ended_by = nextEndedBy;
     session.updated_at = new Date().toISOString();
     await this.writeState(state);
     return session;
@@ -202,17 +230,26 @@ function normalizePrompt(prompt) {
   return normalized;
 }
 
-function normalizeLayoutWarnings(layoutWarnings) {
+function layoutWarningKey(warning) {
+  return `${warning.kind}:${warning.selector}`;
+}
+
+function normalizeLayoutWarnings(layoutWarnings, deliveredKeys = new Set()) {
   if (!Array.isArray(layoutWarnings)) return [];
   return layoutWarnings
     .filter((warning) => warning && typeof warning === "object" && !Array.isArray(warning))
-    .map((warning) => ({
-      selector: String(warning.selector || ""),
-      kind: String(warning.kind || "layout-warning"),
-      overflowPx: normalizeFiniteNumber(warning.overflowPx),
-      viewportWidth: normalizeFiniteNumber(warning.viewportWidth),
-      severity: warning.severity === "warning" ? "warning" : "error",
-    }));
+    .map((warning) => {
+      const selector = String(warning.selector || "");
+      const kind = String(warning.kind || "layout-warning");
+      return {
+        selector,
+        kind,
+        overflowPx: normalizeFiniteNumber(warning.overflowPx),
+        viewportWidth: normalizeFiniteNumber(warning.viewportWidth),
+        severity: warning.severity === "warning" ? "warning" : "error",
+        persistent: deliveredKeys.has(layoutWarningKey({ kind, selector })),
+      };
+    });
 }
 
 function normalizeFiniteNumber(value) {

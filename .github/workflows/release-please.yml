@@ -36,26 +36,8 @@ jobs:
       - run: pnpm install --frozen-lockfile
         if: ${{ steps.release.outputs.release_created }}
 
-      - run: pnpm run lint
+      - run: pnpm run check
         if: ${{ steps.release.outputs.release_created }}
-
-      - run: pnpm run format:check
-        if: ${{ steps.release.outputs.release_created }}
-
-      - run: pnpm run typecheck
-        if: ${{ steps.release.outputs.release_created }}
-
-      - run: pnpm test
-        if: ${{ steps.release.outputs.release_created }}
-
-      - run: pnpm run build
-        if: ${{ steps.release.outputs.release_created }}
-        env:
-          SHINY_AXI_UMAMI_HOST: https://a.kunchenguid.com
-          SHINY_AXI_UMAMI_WEBSITE_ID: ${{ vars.SHINY_AXI_UMAMI_WEBSITE_ID }}
 
       - run: npm publish --access public --provenance
         if: ${{ steps.release.outputs.release_created }}
-        env:
-          SHINY_AXI_UMAMI_HOST: https://a.kunchenguid.com
-          SHINY_AXI_UMAMI_WEBSITE_ID: ${{ vars.SHINY_AXI_UMAMI_WEBSITE_ID }}
