@@ -23,7 +23,7 @@ jobs:
         with:
           ref: ${{ steps.release.outputs.tag_name }}
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         if: ${{ steps.release.outputs.release_created }}
 
       - uses: actions/setup-node@v6
